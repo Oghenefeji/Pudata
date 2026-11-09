@@ -17,11 +17,11 @@ Build a mobile-first Nigerian VTU storefront called **pudata**. The first delive
 - **Lagos Utility Studio** (0.05): warm civic-tech energy with bold typography and compact mobile navigation.
 - **Quiet Commerce** (0.03): calm editorial utility with off-white space and restrained accent color.
 
-### Chosen style: Lemon Ledger
+### Chosen style: White Signal
 
 - **Design Movement:** contemporary fintech utility design with editorial spacing and tactile rounded surfaces.
 - **Core Principles:** make the next action obvious; use lemon sparingly as a signal; show trust through legible transaction detail; keep the experience thumb-friendly.
-- **Color Philosophy:** white and warm ink do the heavy lifting, while lemon marks action, success, and focus. Soft butter tints separate service categories without making the page feel childish.
+- **Color Philosophy:** pure white and dark ink do the heavy lifting, while a soft red accent marks action, focus, and confirmation. White cards with light red borders keep the payment utility calm and modern.
 - **Layout Paradigm:** a left-aligned editorial dashboard with a wide balance rail, asymmetric service mosaic, and a persistent bottom action bar on small screens.
 - **Signature Elements:** lemon corner tabs, miniature illustrated utility scenes, and transaction reference chips.
 - **Interaction Philosophy:** every tap either starts a service, reveals a clear next step, or explains why a service is unavailable. Modal flows stay short and show the exact customer input required.
@@ -30,7 +30,7 @@ Build a mobile-first Nigerian VTU storefront called **pudata**. The first delive
 - **Brand Essence:** a dependable everyday payment rail for Nigeria—fast, clear, and human. Personality: grounded, bright, capable.
 - **Brand Voice:** direct and reassuring. Example lines: “Power the next thing.” and “Your payment is moving safely.”
 - **Wordmark & Logo:** a lowercase wordmark with a small lemon “u” underline and a square corner notch; the mark is recreated in CSS/SVG so it stays crisp at any size.
-- **Signature Brand Color:** `#F4E85B`, a warm lemon yellow that reads as optimistic without overpowering the mostly-white interface.
+- **Signature Brand Color:** `#FF6B6B`, a clear soft red that feels energetic and trustworthy without overpowering the white interface.
 
 ## Project structure
 - `public/index.html`: dashboard shell, modals, service tile markup, and accessible landmarks.
