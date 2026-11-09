@@ -1,51 +1,67 @@
 # pudata environment variables and secrets
 
-This project deliberately keeps provider credentials out of browser code. The browser may know the Supabase project URL, the Supabase anon key, the public Flutterwave key, and the public app URL. PulseFlow credentials, the transaction PIN, the Flutterwave secret material, and the Supabase service-role key belong only in Supabase Edge Function secrets.
+This guide contains names and locations only. No real secret values are included.
 
-## Frontend-safe variables
+## 1. Frontend variables — public/safe
 
-| Name | What it is | Where to get it |
-| --- | --- | --- |
-| `VITE_SUPABASE_URL` | Public URL for the Supabase project used by the browser client. | Supabase Dashboard → Project Settings → API → Project URL. |
-| `VITE_SUPABASE_ANON_KEY` | Browser-safe Supabase anon/public key. RLS must remain enabled. | Supabase Dashboard → Project Settings → API → anon public key. |
-| `VITE_FLUTTERWAVE_PUBLIC_KEY` | Flutterwave public key used to open checkout. It cannot authorize fulfilment. | Flutterwave Dashboard → Settings → API. Use the live or test public key that matches the environment. |
-| `VITE_APP_URL` | Public pudata origin, used to build redirect URLs and receipt links. | The published pudata URL or the custom domain you connect. |
-| `VITE_SUPPORT_WHATSAPP_URL` | Public WhatsApp support link, for example `https://wa.me/2348000000000`. | Create or obtain the business WhatsApp click-to-chat link. |
+These values may be included in the browser bundle because Supabase Row Level Security must protect all database access. They are not passwords.
 
-Do not place `PULSEFLOW_API_KEY`, `PULSEFLOW_TRANSACTION_PIN`, `FLW_SECRET_KEY`, `FLW_SECRET_HASH`, or `SUPABASE_SERVICE_ROLE_KEY` in any `VITE_` variable.
+| Name | What it is | Exact value/source | Where to add it in Manus |
+| --- | --- | --- | --- |
+| `VITE_SUPABASE_URL` | The Supabase project URL used by the frontend. | Copy **Project URL** from Supabase Dashboard → **Project Settings → API**. It normally looks like `https://YOUR_PROJECT_REF.supabase.co`. | Manus project Dashboard → **Environment / Variables** → add as a frontend/build variable for the environment you use. |
+| `VITE_SUPABASE_ANON_KEY` | The browser-safe Supabase anon/public key. | Copy ** anon public** from Supabase Dashboard → **Project Settings → API**. | Manus project Dashboard → **Environment / Variables** → add as a frontend/build variable. |
+| `VITE_FLUTTERWAVE_PUBLIC_KEY` | Flutterwave public key used to open checkout. | Flutterwave Dashboard → **Settings → API** → Public key. | Manus project Dashboard → **Environment / Variables** → add as a frontend/build variable. |
+| `VITE_APP_URL` | Public pudata origin used for redirect/receipt links. | Your published pudata URL or connected custom domain. | Manus project Dashboard → **Environment / Variables** → add as a frontend/build variable. |
+| `VITE_SUPPORT_WHATSAPP_URL` | Public click-to-chat support URL. | Your WhatsApp Business click-to-chat URL, for example `https://wa.me/234...`. | Manus project Dashboard → **Environment / Variables** → add as a frontend/build variable. |
 
-## Supabase Edge Function secrets
+### The exact two Supabase values the frontend needs
 
-| Name | What it is | Where to get it |
-| --- | --- | --- |
-| `SUPABASE_URL` | Supabase project URL available to Edge Functions. | Supabase Dashboard → Project Settings → API → Project URL. |
-| `SUPABASE_ANON_KEY` | Supabase anon key for user-token validation when a function needs it. | Supabase Dashboard → Project Settings → API → anon public key. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only key used by trusted functions to write provider results and run privileged operations. | Supabase Dashboard → Project Settings → API → service_role key. Never return it or log it. |
-| `PULSEFLOW_BASE_URL` | PulseFlow API base URL. Set exactly to `https://pulseflow.com.ng/api/v1` with no trailing slash. | PulseFlow Affiliate API documentation/account. |
-| `PULSEFLOW_API_KEY` | PulseFlow bearer token named `customer_api_key` in the docs. | PulseFlow account/API credentials. |
-| `PULSEFLOW_SECRET_KEY` | Optional PulseFlow account secret. The captured docs do not use it. Store only if provided, but do not send it unless PulseFlow later documents a use. | PulseFlow account. |
-| `PULSEFLOW_TRANSACTION_PIN` | Transaction PIN sent only in the purchase body. | The PulseFlow account owner. |
-| `FLW_SECRET_KEY` | Flutterwave server secret used to verify transactions and optionally issue refunds. | Flutterwave Dashboard → Settings → API → Secret Key. |
-| `FLW_SECRET_HASH` | Webhook secret hash used to validate the `verif-hash` header. | Flutterwave Dashboard → Settings → Webhooks → Secret hash. |
-| `FLW_PUBLIC_KEY` | Server-side copy of the Flutterwave public key for receipt/config checks when needed. | Flutterwave Dashboard → Settings → API. The browser should use the Vite copy only. |
-| `PUDATA_APP_URL` | Canonical public site URL for redirect and receipt links. | The published pudata URL or custom domain. |
-| `PUDATA_ADMIN_EMAIL` | Optional owner email used by an admin setup script or notification path. | The account owner; keep it out of client code. |
+Use these exact variable names:
 
-## Example setup commands
-
-From the Supabase project directory, set secrets with the Supabase CLI. Replace values locally; never commit the resulting `.env` file:
-
-```bash
-supabase secrets set \
-  SUPABASE_URL="https://YOUR_PROJECT_REF.supabase.co" \
-  SUPABASE_ANON_KEY="YOUR_ANON_KEY" \
-  SUPABASE_SERVICE_ROLE_KEY="YOUR_SERVICE_ROLE_KEY" \
-  PULSEFLOW_BASE_URL="https://pulseflow.com.ng/api/v1" \
-  PULSEFLOW_API_KEY="YOUR_PULSEFLOW_API_KEY" \
-  PULSEFLOW_TRANSACTION_PIN="YOUR_PULSEFLOW_TRANSACTION_PIN" \
-  FLW_SECRET_KEY="FLWSECK_TEST-..." \
-  FLW_SECRET_HASH="YOUR_WEBHOOK_SECRET_HASH" \
-  PUDATA_APP_URL="https://YOUR_PUBLISHED_PUDATA_DOMAIN"
+```env
+VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_PUBLIC_KEY
 ```
 
-For test mode, use test Flutterwave credentials and a test PulseFlow account/catalogue if PulseFlow provides one. Keep test and production projects/secrets separate.
+Do not use the Supabase `service_role` key in either variable. The URL is the **Project URL**, not the dashboard URL. The key is the **anon public** key, not the service-role key.
+
+## 2. Supabase Edge Function secrets — private/server-only
+
+Add these as Supabase Edge Function secrets. They must never be placed in `public/`, a `VITE_` variable, browser code, a screenshot, or a client response.
+
+| Name | What it is | Where to get it |
+| --- | --- | --- |
+| `SUPABASE_URL` | Supabase project URL available to functions. | Supabase Dashboard → Project Settings → API → Project URL. |
+| `SUPABASE_ANON_KEY` | Anon key used when a function needs to create a user-scoped client. | Supabase Dashboard → Project Settings → API → anon public key. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Privileged server key used only by trusted functions. | Supabase Dashboard → Project Settings → API → service_role key. Never expose it. |
+| `PULSEFLOW_BASE_URL` | PulseFlow base URL, without a trailing slash. | Use exactly `https://pulseflow.com.ng/api/v1`. |
+| `PULSEFLOW_API_KEY` | PulseFlow bearer token/customer API key. | PulseFlow Affiliate API account credentials. |
+| `PULSEFLOW_SECRET_KEY` | Optional PulseFlow account secret. Current documented requests do not use it. | PulseFlow account. Store only if supplied; do not send it unless PulseFlow documents a use. |
+| `PULSEFLOW_TRANSACTION_PIN` | PulseFlow transaction PIN sent in purchase bodies. | PulseFlow account owner. |
+| `FLW_SECRET_KEY` | Flutterwave server secret for verification/refunds. | Flutterwave Dashboard → Settings → API → Secret key. |
+| `FLW_SECRET_HASH` | Flutterwave webhook hash used to verify `verif-hash`. | Flutterwave Dashboard → Settings → Webhooks → Secret hash. |
+| `FLW_PUBLIC_KEY` | Optional server-side copy of the Flutterwave public key. | Flutterwave Dashboard → Settings → API → Public key. |
+| `PUDATA_APP_URL` | Canonical published pudata URL. | Your published pudata URL or connected custom domain. |
+| `PUDATA_ADMIN_EMAIL` | Optional owner/admin notification email. | Your chosen admin email address. |
+
+## Where to add secrets
+
+For the Edge Functions, add the private names in Supabase Dashboard → **Project Settings → Edge Functions → Secrets** (the dashboard may label this **Secrets** under Edge Functions). Paste only the name and your real value there. Do not paste private values into the Manus chat or into frontend environment variables.
+
+For Manus, add only the frontend-safe `VITE_...` values in the pudata project’s **Environment / Variables** panel. If Manus shows separate Development and Production scopes, add the appropriate values to both scopes. After changing frontend build variables, restart/rebuild Preview so the Vite-prefixed values are embedded in the frontend build.
+
+## Flutterwave URLs
+
+Webhook:
+
+```text
+https://YOUR_PROJECT_REF.supabase.co/functions/v1/flutterwave-webhook
+```
+
+Redirect:
+
+```text
+https://YOUR_PUBLISHED_PUDATA_DOMAIN/?payment=complete
+```
+
+The redirect is not trusted by itself. The frontend must call `flutterwave-verify`, and that function must verify the transaction server-side.
