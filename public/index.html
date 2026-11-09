@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f4e85b" />
+    <meta name="description" content="pudata — everyday payments made clear." />
+    <title>pudata — everyday payments, made clear</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="app">
+      <header class="topbar">
+        <button class="icon-button menu-trigger" type="button" aria-label="Open menu" data-action="menu">
+          <span class="menu-lines" aria-hidden="true"><i></i><i></i></span>
+        </button>
+        <a class="brand" href="#" data-action="home" aria-label="pudata home">
+          <span class="brand-mark">p</span>
+          <span class="brand-name">pudata</span>
+        </a>
+        <button class="profile-trigger" type="button" data-action="profile" aria-label="Open profile">
+          <span class="profile-avatar">G</span>
+          <span class="profile-label" data-profile-label>Guest</span>
+          <span class="chevron">⌄</span>
+        </button>
+      </header>
+
+      <main class="main-content">
+        <section class="hero-grid" aria-labelledby="hero-title">
+          <div class="hero-copy">
+            <div class="eyebrow"><span class="eyebrow-dot"></span> Everyday payments, made clear</div>
+            <h1 id="hero-title">Power the <span>next thing.</span></h1>
+            <p class="hero-lede">A lighter way to buy data, pay bills, and stay connected across Nigeria.</p>
+            <div class="hero-actions">
+              <button class="button button-dark" type="button" data-action="browse-services">Browse services <span>↗</span></button>
+              <button class="text-button" type="button" data-action="how-it-works">How it works <span>→</span></button>
+            </div>
+          </div>
+          <div class="trust-panel" aria-label="pudata service promise">
+            <div class="trust-orbit orbit-one"></div>
+            <div class="trust-orbit orbit-two"></div>
+            <div class="trust-card">
+              <span class="mini-label">PUDATA PROMISE</span>
+              <strong>Simple steps.<br />Clear receipts.</strong>
+              <span class="trust-meta"><span class="status-dot"></span> Payments protected end to end</span>
+            </div>
+            <div class="trust-sticker">NG<br /><small>built for<br />everyday</small></div>
+          </div>
+        </section>
+
+        <section class="wallet-strip" aria-label="wallet summary">
+          <div class="wallet-intro">
+            <span class="wallet-icon">₦</span>
+            <div>
+              <span class="muted-label">YOUR WALLET</span>
+              <strong data-wallet-balance>₦0.00</strong>
+            </div>
+          </div>
+          <div class="wallet-copy" data-wallet-copy>Sign in to fund once and pay faster next time.</div>
+          <button class="button button-lemon" type="button" data-action="fund-wallet">Add funds <span>+</span></button>
+        </section>
+
+        <section class="section-block" id="services" aria-labelledby="services-title">
+          <div class="section-heading">
+            <div>
+              <span class="section-kicker">WHAT YOU CAN DO</span>
+              <h2 id="services-title">Our services</h2>
+            </div>
+            <button class="filter-button" type="button" data-action="all-services">View all <span>↗</span></button>
+          </div>
+          <div class="service-grid" id="service-grid"></div>
+        </section>
+
+        <section class="insight-grid" aria-label="service notes">
+          <article class="note-card lemon-note">
+            <span class="note-number">01</span>
+            <div>
+              <span class="section-kicker">GOOD TO KNOW</span>
+              <h3>Every payment leaves a trail.</h3>
+              <p>Your receipt carries a reference you can always use to check progress.</p>
+            </div>
+            <button class="circle-arrow" type="button" data-action="transactions" aria-label="View transactions">↗</button>
+          </article>
+          <article class="note-card ink-note">
+            <span class="note-number">02</span>
+            <div>
+              <span class="section-kicker">NEED A HAND?</span>
+              <h3>Talk to a real person.</h3>
+              <p>Support is one tap away whenever a payment needs a closer look.</p>
+            </div>
+            <button class="circle-arrow light" type="button" data-action="help" aria-label="Open help">↗</button>
+          </article>
+        </section>
+      </main>
+
+      <nav class="bottom-nav" aria-label="Primary navigation">
+        <button class="bottom-nav-item active" type="button" data-action="home"><span class="nav-symbol">⌂</span><span>Home</span></button>
+        <button class="bottom-nav-item" type="button" data-action="fund-wallet"><span class="nav-symbol">＋</span><span>Fund wallet</span></button>
+        <button class="bottom-nav-item" type="button" data-action="help"><span class="nav-symbol">?</span><span>Help</span></button>
+        <button class="bottom-nav-item" type="button" data-action="more"><span class="nav-symbol">•••</span><span>More</span></button>
+      </nav>
+    </div>
+
+    <div class="drawer-backdrop" data-action="close-menu"></div>
+    <aside class="side-drawer" aria-label="Menu" aria-hidden="true">
+      <div class="drawer-top"><span class="drawer-label">MENU</span><button class="icon-button" type="button" data-action="close-menu" aria-label="Close menu">×</button></div>
+      <div class="drawer-brand"><span class="brand-mark">p</span><span class="brand-name">pudata</span></div>
+      <p class="drawer-note">The simple way to keep life moving.</p>
+      <div class="drawer-links">
+        <button type="button" data-action="home"><span>⌂</span> Home</button>
+        <button type="button" data-action="transactions"><span>↗</span> Transactions</button>
+        <button type="button" data-action="referrals"><span>✦</span> Referral & rewards</button>
+        <button type="button" data-action="help"><span>?</span> Help centre</button>
+      </div>
+      <div class="drawer-footer"><span class="status-dot"></span> All systems are demo-ready</div>
+    </aside>
+
+    <div class="modal-layer" id="modal-layer" aria-hidden="true">
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <button class="modal-close" type="button" data-action="close-modal" aria-label="Close dialog">×</button>
+        <div class="modal-kicker" id="modal-kicker">PUDATA</div>
+        <h2 id="modal-title">Make a payment</h2>
+        <p class="modal-intro" id="modal-intro">Choose a service and we’ll keep the next step clear.</p>
+        <div id="modal-body"></div>
+      </section>
+    </div>
+
+    <div class="toast" role="status" aria-live="polite" id="toast"></div>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
