@@ -15,6 +15,12 @@ The browser should call Supabase Edge Functions, not PulseFlow or Flutterwave se
 | `recheck-transaction` | Reads the PulseFlow account ledger or provider status for an admin-selected pending transaction and applies a deliberate state transition. Never retries with a new reference. | Admin JWT only. |
 | `admin-refund` | For a clearly failed PulseFlow result, issues a Flutterwave refund when the original payment is refundable and credits the member wallet only through the atomic SQL function. Never refunds pending automatically. | Admin JWT only. |
 
+## Payment contract implemented by the frontend and functions
+
+Wallet funding creates a Flutterwave `tx_ref` in exactly the form `FUND_<logged-in-user-UUID>_<random-string>`. After Flutterwave succeeds, the frontend calls `flutterwave-verify`; that function checks the authenticated UUID prefix, verifies the exact NGN amount server-side, calls the atomic `credit_wallet` SQL function with an idempotency key derived from the same `tx_ref`, and only then does the frontend refresh `wallets.balance`. The browser never increments the balance.
+
+Guest checkout stores its pending payload before opening Flutterwave. After success it immediately calls `create-purchase` with the same `payment_tx_ref`. If the page closes, reopening the page offers retry with that same `tx_ref`; `create-purchase` returns the existing guest transaction instead of creating a duplicate. The PulseFlow parameter shapes are: airtime `{ phone_number, amount }`, data `{ phone_number }`, TV `{ smart_card_number }`, and education/data-card/recharge-card `{ quantity }`.
+
 ## Deploy commands
 
 From a Supabase CLI project containing `supabase/functions`:

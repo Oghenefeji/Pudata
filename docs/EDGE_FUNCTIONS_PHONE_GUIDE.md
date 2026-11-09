@@ -36,6 +36,18 @@ For `flutterwave-webhook` and `guest-receipt`, the dashboard may require public 
 
 `create-purchase` sends the transaction PIN only from the Edge Function secret and always creates a new unique client reference for a new purchase. Do not call it a second time for an unclear result. Use `recheck-transaction` with the original reference instead.
 
+Wallet funding uses a Flutterwave `tx_ref` in exactly this format:
+
+```text
+FUND_<logged-in-user-UUID>_<random-string>
+```
+
+The `flutterwave-verify` function checks that the authenticated user UUID matches the prefix, verifies the exact NGN amount, credits the wallet with the atomic `credit_wallet` function, and uses `fund:<tx_ref>` as the idempotency key. The browser never changes the balance directly; it refreshes `wallets.balance` only after the function returns verified/credited.
+
+Guest purchases use the same `payment_tx_ref` after Flutterwave succeeds. The frontend stores the pending checkout payload locally before opening Flutterwave. If the page closes, reopening the page offers retry with the same `tx_ref`; `create-purchase` returns the existing transaction instead of creating a second purchase.
+
+The purchase payloads are deliberately constrained as follows: airtime sends `parameters.phone_number` and `parameters.amount`; data sends `parameters.phone_number`; TV sends `parameters.smart_card_number`; education, data-card, and recharge-card products send `parameters.quantity`.
+
 ## Safe test order
 
 Test in Flutterwave/PulseFlow test mode first: deploy and invoke `flutterwave-verify`, then `guest-receipt` with a known test record, then a small airtime purchase. Test pending and failure handling before enabling live checkout. Do not paste secret values into the function source editor; use Edge Function Secrets instead.

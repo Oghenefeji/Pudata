@@ -1,6 +1,8 @@
 const state = {
   loggedIn: false,
   wallet: 0,
+  user: null,
+  session: null,
   modal: null,
   drawerOpen: false,
   selectedService: null,
@@ -8,6 +10,69 @@ const state = {
   txCount: 3,
   lastReceipt: null
 };
+
+const runtimeConfig = window.PUDATA_CONFIG || {};
+const supabaseClient = runtimeConfig.supabaseUrl && runtimeConfig.supabaseAnonKey && window.supabase
+  ? window.supabase.createClient(runtimeConfig.supabaseUrl, runtimeConfig.supabaseAnonKey)
+  : null;
+
+function randomRefPart() {
+  return crypto.randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
+}
+
+async function refreshWallet() {
+  if (!supabaseClient || !state.user) return;
+  const { data, error } = await supabaseClient.from('wallets').select('balance').eq('user_id', state.user.id).single();
+  if (!error && data) {
+    state.wallet = Number(data.balance || 0);
+    updateProfile();
+  }
+}
+
+async function syncSession() {
+  if (!supabaseClient) return;
+  const { data } = await supabaseClient.auth.getSession();
+  state.session = data.session;
+  state.user = data.session?.user || null;
+  state.loggedIn = Boolean(state.user);
+  updateProfile();
+  await refreshWallet();
+  await retryPendingGuestPurchase();
+}
+
+async function invokeFunction(name, body) {
+  if (!supabaseClient) throw new Error('Supabase frontend variables are not configured');
+  const { data, error } = await supabaseClient.functions.invoke(name, { body });
+  if (error) throw error;
+  return data;
+}
+
+function walletFundingRef() {
+  if (!state.user?.id) throw new Error('You must be logged in to fund a wallet');
+  return `FUND_${state.user.id}_${randomRefPart()}`;
+}
+
+function guestPaymentRef() {
+  return `PUD_${new Date().getFullYear()}_${randomRefPart()}`;
+}
+
+function launchFlutterwave({ amount, txRef, email, onSuccess }) {
+  if (!window.FlutterwaveCheckout || !runtimeConfig.flutterwavePublicKey) {
+    showToast('Flutterwave is not configured yet. Add the public key in Manus project variables.');
+    return;
+  }
+  window.FlutterwaveCheckout({
+    public_key: runtimeConfig.flutterwavePublicKey,
+    tx_ref: txRef,
+    amount,
+    currency: 'NGN',
+    payment_options: 'card,banktransfer,ussd',
+    customer: { email },
+    customizations: { title: 'pudata', description: 'Everyday payments, made clear' },
+    callback: onSuccess,
+    onclose: () => showToast('Checkout closed. You can retry with the same transaction reference.')
+  });
+}
 
 const services = [
   { id: 'airtime', title: 'Buy Airtime', subtitle: 'MTN · Airtel · Glo · 9mobile', tone: 'butter', art: 'airtime', active: true, kind: 'airtime' },
@@ -122,7 +187,7 @@ function showPurchase(kind) {
 }
 
 function showLogin() {
-  openModal({ kicker: 'YOUR PUDATA ACCOUNT', title: 'Keep payments close', intro: 'Sign in to fund your wallet once, see every receipt, and get moving faster.', body: `<form class="modal-form" id="login-form"><div class="field"><label for="login-email">Email address</label><input id="login-email" type="email" placeholder="you@example.com" required /></div><div class="field"><label for="login-password">Password</label><input id="login-password" type="password" placeholder="••••••••" required /></div><div class="modal-actions"><button class="button button-dark" type="submit">Log in <span>↗</span></button></div><div class="modal-quiet">Demo mode is on. Any valid-looking email and password will create a local session.</div></form>` });
+  openModal({ kicker: 'YOUR PUDATA ACCOUNT', title: 'Keep payments close', intro: 'Sign in to fund your wallet once, see every receipt, and get moving faster.', body: `<form class="modal-form" id="login-form"><div class="field"><label for="login-email">Email address</label><input id="login-email" type="email" placeholder="you@example.com" required /></div><div class="field"><label for="login-password">Password</label><input id="login-password" type="password" placeholder="••••••••" required /></div><div class="modal-actions"><button class="button button-dark" type="submit">Log in <span>↗</span></button></div><div class="modal-quiet">Your session is managed by Supabase Auth. Wallet balance is always read from the server.</div></form>` });
 }
 
 function showProfile() {
@@ -139,7 +204,7 @@ function showFundWallet() {
     showToast('Log in to fund a wallet, or continue as a guest at checkout.');
     return;
   }
-  openModal({ kicker: 'WALLET', title: 'Add funds', intro: 'Fund once and pay active services from your pudata wallet.', body: `<form class="modal-form" id="fund-form"><div class="field"><label for="fund-amount">Amount</label><select id="fund-amount"><option value="1000">₦1,000</option><option value="2500">₦2,500</option><option value="5000">₦5,000</option><option value="10000">₦10,000</option></select></div><div class="option-row"><button class="option selected" type="button"><strong>Card</strong><span>Flutterwave</span></button><button class="option" type="button"><strong>Transfer</strong><span>Bank details</span></button><button class="option" type="button"><strong>USSD</strong><span>Quick code</span></button></div><div class="modal-actions"><button class="button button-dark" type="submit">Continue to payment <span>↗</span></button></div><div class="modal-quiet">Payment is verified server-side by amount, currency, status, and tx_ref before your wallet is credited.</div></form>` });
+  openModal({ kicker: 'WALLET', title: 'Add funds', intro: 'Fund once and pay active services from your pudata wallet.', body: `<form class="modal-form" id="fund-form"><div class="field"><label for="fund-amount">Amount</label><select id="fund-amount"><option value="1000">₦1,000</option><option value="2500">₦2,500</option><option value="5000">₦5,000</option><option value="10000">₦10,000</option></select></div><div class="option-row"><button class="option selected" type="button"><strong>Card</strong><span>Flutterwave</span></button><button class="option" type="button"><strong>Transfer</strong><span>Bank details</span></button><button class="option" type="button"><strong>USSD</strong><span>Quick code</span></button></div><div class="modal-actions"><button class="button button-dark" type="submit">Continue to payment <span>↗</span></button></div><div class="modal-quiet">After checkout, the server verifies the exact FUND_ reference, credits the wallet atomically, and the app refreshes the balance. The browser never credits it.</div></form>` });
 }
 
 function showReceipt(receipt) {
@@ -178,16 +243,72 @@ function handleAction(action, target) {
   if (action === 'referrals') { closeModal(); showToast('Referral rewards will appear here once your account is connected.'); }
   if (action === 'announcements') { closeModal(); showToast('No new announcements right now.'); }
   if (action === 'support') showToast('WhatsApp support is ready for your live contact link.');
+  if (action === 'retry-guest-purchase') {
+    const raw = localStorage.getItem('pudata_pending_guest_purchase');
+    if (!raw) return;
+    const pending = JSON.parse(raw);
+    closeModal();
+    launchFlutterwave({ amount: pending.amount, txRef: pending.tx_ref, email: pending.email, onSuccess: async (response) => {
+      if (response?.status !== 'successful' && response?.status !== 'completed') return;
+      try { await completeGuestPurchase(pending); } catch { showToast(`Fulfilment needs another retry with ${pending.tx_ref}.`); }
+    } });
+  }
   if (action === 'admin') showAdmin();
   if (action === 'refresh-catalogue') { closeModal(); showToast('Catalogue refresh queued for the secure Edge Function.'); }
   if (action === 'how-it-works') showToast('Choose a service, confirm your details, then keep the reference.');
-  if (action === 'logout') { state.loggedIn = false; state.wallet = 0; updateProfile(); closeModal(); showToast('You’re signed out.'); }
+  if (action === 'logout') { if (supabaseClient) supabaseClient.auth.signOut(); state.loggedIn = false; state.user = null; state.session = null; state.wallet = 0; updateProfile(); closeModal(); showToast('You’re signed out.'); }
 }
 
 function updateProfile() {
-  $('[data-profile-label]').textContent = state.loggedIn ? 'Ada' : 'Guest';
+  $('[data-profile-label]').textContent = state.loggedIn ? (state.user?.email?.split('@')[0] || 'Member') : 'Guest';
   $('[data-wallet-balance]').textContent = state.loggedIn ? `₦${state.wallet.toLocaleString('en-NG', { minimumFractionDigits: 2 })}` : '₦0.00';
   $('[data-wallet-copy]').textContent = state.loggedIn ? 'Your wallet is ready for fast, repeat payments.' : 'Sign in to fund once and pay faster next time.';
+}
+
+function purchasePayload(kind) {
+  const parameters = {};
+  if (kind === 'airtime') {
+    parameters.phone_number = $('#phone')?.value.trim();
+    parameters.amount = Number($('#amount')?.value || 0);
+  } else if (kind === 'data') {
+    parameters.phone_number = $('#phone')?.value.trim();
+  } else if (kind === 'tv') {
+    parameters.smart_card_number = $('#customer-id')?.value.trim();
+  } else if (kind === 'education' || kind === 'pins') {
+    parameters.quantity = Number($('#quantity')?.value || 1);
+  }
+  return parameters;
+}
+
+function purchaseAmount(kind) {
+  if (kind === 'airtime') return Number($('#amount')?.value || 0);
+  if (kind === 'data') return 1000;
+  if (kind === 'tv') return 15700;
+  return 2500;
+}
+
+async function completeGuestPurchase(pending) {
+  const result = await invokeFunction('create-purchase', {
+    product_id: pending.product_id,
+    email: pending.email,
+    payment_tx_ref: pending.tx_ref,
+    parameters: pending.parameters
+  });
+  localStorage.removeItem('pudata_pending_guest_purchase');
+  const selected = services.find((service) => service.kind === pending.kind);
+  state.txCount += 1;
+  showReceipt({ service: selected?.title || 'Service', amount: pending.amount, email: pending.email, status: result.status || 'pending', reference: result.reference || pending.tx_ref, pin: result.details?.pins ? JSON.stringify(result.details.pins) : null });
+}
+
+async function retryPendingGuestPurchase() {
+  const raw = localStorage.getItem('pudata_pending_guest_purchase');
+  if (!raw || state.loggedIn) return;
+  try {
+    const pending = JSON.parse(raw);
+    if (pending?.tx_ref) openModal({ kicker: 'PAYMENT RETRY', title: 'Finish your guest payment', intro: 'Your original payment reference is saved. Retry with the same tx_ref; pudata will not create a second payment reference.', body: `<div class="receipt"><div class="receipt-row"><span>Transaction reference</span><strong>${escapeHtml(pending.tx_ref)}</strong></div><div class="receipt-row"><span>Amount</span><strong>₦${Number(pending.amount).toLocaleString('en-NG')}</strong></div></div><div class="modal-actions"><button class="button button-dark" type="button" data-action="retry-guest-purchase">Retry checkout <span>↗</span></button></div>` });
+  } catch {
+    localStorage.removeItem('pudata_pending_guest_purchase');
+  }
 }
 
 document.addEventListener('click', (event) => {
@@ -203,39 +324,65 @@ document.addEventListener('submit', (event) => {
   event.preventDefault();
   const form = event.target;
   if (form.id === 'login-form') {
-    state.loggedIn = true;
-    state.wallet = 2500;
-    updateProfile();
-    closeModal();
-    showToast('Welcome back. Your demo wallet has ₦2,500 to get started.');
+    if (!supabaseClient) {
+      showToast('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Manus.');
+      return;
+    }
+    supabaseClient.auth.signInWithPassword({ email: $('#login-email').value.trim(), password: $('#login-password').value }).then(async ({ error }) => {
+      if (error) { showToast(error.message); return; }
+      await syncSession();
+      closeModal();
+      showToast('Signed in. Wallet balance refreshed from the server.');
+    });
   }
   if (form.id === 'fund-form') {
     const amount = Number($('#fund-amount').value);
-    state.wallet += amount;
-    updateProfile();
+    let txRef;
+    try { txRef = walletFundingRef(); } catch (error) { showToast(error.message); return; }
+    const email = state.user.email;
     closeModal();
-    showToast(`₦${amount.toLocaleString('en-NG')} funding initiated — demo wallet credited.`);
+    launchFlutterwave({ amount, txRef, email, onSuccess: async (response) => {
+      if (response?.status !== 'successful' && response?.status !== 'completed') { showToast('Flutterwave did not confirm this payment.'); return; }
+      try {
+        const verified = await invokeFunction('flutterwave-verify', { tx_ref: txRef, expected_amount: amount, purpose: 'wallet_funding' });
+        if (!verified.verified) { showToast('Payment could not be verified. Your wallet was not changed.'); return; }
+        await refreshWallet();
+        showToast(`₦${amount.toLocaleString('en-NG')} added after server verification.`);
+      } catch (error) { showToast(`Verification failed: ${error.message}`); }
+      } });
   }
   if (form.id === 'purchase-form') {
     const email = $('#email')?.value || 'guest@example.com';
     const selected = services.find((service) => service.kind === state.selectedService);
-    const amount = state.selectedService === 'airtime' ? Number($('#amount')?.value || 100) : state.selectedService === 'data' ? 1000 : state.selectedService === 'tv' ? 15700 : 2500;
+    const amount = purchaseAmount(state.selectedService);
     if (state.selectedService === 'airtime' && amount < 50) {
       showToast('Airtime minimum is ₦50.');
       return;
     }
-    if (state.loggedIn && state.wallet < amount) {
-      showToast('Your wallet is below this amount. Add funds first.');
+    const pending = { kind: state.selectedService, product_id: selected?.id || state.selectedService, amount, email, parameters: purchasePayload(state.selectedService), tx_ref: guestPaymentRef() };
+    if (state.loggedIn) {
+      invokeFunction('create-purchase', { product_id: pending.product_id, parameters: pending.parameters }).then((result) => {
+        state.txCount += 1;
+        showReceipt({ service: selected?.title || 'Service', amount, email: state.user.email, status: result.status || 'pending', reference: result.reference || 'PENDING', pin: result.details?.pins ? JSON.stringify(result.details.pins) : null });
+        refreshWallet();
+      }).catch((error) => showToast(`Purchase failed: ${error.message}`));
       return;
     }
-    if (state.loggedIn) { state.wallet -= amount; updateProfile(); }
-    state.txCount += 1;
-    showReceipt({ service: selected?.title || 'Service', amount, email, status: state.selectedService === 'tv' ? 'pending' : 'success', reference: `PUD-${new Date().getFullYear()}-${String(state.txCount).padStart(6, '0')}`, pin: state.selectedService === 'education' || state.selectedService === 'pins' ? 'PF-82K4-19LM-7XQ2' : null });
+    localStorage.setItem('pudata_pending_guest_purchase', JSON.stringify(pending));
+    launchFlutterwave({ amount, txRef: pending.tx_ref, email, onSuccess: async (response) => {
+      if (response?.status !== 'successful' && response?.status !== 'completed') { showToast('Flutterwave did not confirm this payment.'); return; }
+      try {
+        await completeGuestPurchase(pending);
+      } catch (error) {
+        showToast(`Payment verified, but fulfilment needs a retry with ${pending.tx_ref}.`);
+      }
+      } });
   }
   if (form.id === 'lookup-form') {
-    showToast('Demo lookup ready — connect guest-receipt Edge Function for live results.');
+    invokeFunction('guest-receipt', { reference: $('#lookup-ref').value.trim(), email: $('#lookup-email').value.trim() }).then((receipt) => showReceipt({ service: receipt.service, amount: receipt.amount, email: $('#lookup-email').value.trim(), status: receipt.status, reference: receipt.reference, pin: receipt.pins ? JSON.stringify(receipt.pins) : null })).catch((error) => showToast(error.message));
   }
 });
 
 renderServices();
 updateProfile();
+syncSession();

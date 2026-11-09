@@ -38,10 +38,17 @@ Deno.serve(async (req) => {
     if (!product) return json({ error: "Product is not available" }, 400);
     const amount = Number(product.selling_price);
     if (!Number.isFinite(amount) || amount < 0) return json({ error: "Invalid product price" }, 400);
+    const type = String(product.product_type);
+    if (type === "airtime" && (!parameters.phone_number || Number(parameters.amount) < 50)) return json({ error: "Airtime requires parameters.phone_number and parameters.amount >= 50" }, 400);
+    if (type === "data" && !parameters.phone_number) return json({ error: "Data requires parameters.phone_number" }, 400);
+    if (type === "tv" && !parameters.smart_card_number) return json({ error: "TV requires parameters.smart_card_number" }, 400);
+    if (["education", "data_card", "recharge_card"].includes(type) && (![1, 2, 3, 4, 5, 10].includes(Number(parameters.quantity)))) return json({ error: "Pin products require parameters.quantity of 1-5 or 10" }, 400);
     if (!user && !paymentTxRef) return json({ error: "Guest checkout requires a verified Flutterwave tx_ref" }, 400);
     if (!user && paymentTxRef) {
       const verified = await verifyFlutterwave(paymentTxRef, amount);
       if (!verified.ok) return json({ error: "Flutterwave payment could not be verified" }, 402);
+      const { data: existing } = await admin.from("transactions").select("id,client_reference,status,pulseflow_ref,amount,pin_payload").eq("payment_tx_ref", paymentTxRef).eq("guest_email", String(input.email || "").trim().toLowerCase()).maybeSingle();
+      if (existing) return json({ ok: existing.status !== "failed", status: existing.status, reference: existing.client_reference, pulseflow_ref: existing.pulseflow_ref, amount: existing.amount, details: existing.pin_payload ? { pins: existing.pin_payload } : undefined }, existing.status === "success" ? 200 : 202);
     }
     const clientReference = ref();
     const { data: transaction, error: insertError } = await admin.from("transactions").insert({ user_id: user?.id || null, guest_email: user ? null : String(input.email || "").trim().toLowerCase(), client_reference: clientReference, payment_tx_ref: paymentTxRef || null, product_id: product.id, service_type: product.product_type, status: "pending", amount, cost_amount: product.pulseflow_cost, margin_amount: amount - Number(product.pulseflow_cost), currency: "NGN", payment_provider: user ? "wallet" : "flutterwave", customer_phone: parameters.phone_number || null, customer_identifier: parameters.smart_card_number || parameters.meter_number || null, request_payload: { product_id: product.id, parameters } }).select("id").single();

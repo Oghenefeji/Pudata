@@ -25,6 +25,18 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === '/config.js') {
+    const publicConfig = {
+      supabaseUrl: process.env.VITE_SUPABASE_URL || '',
+      supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || '',
+      flutterwavePublicKey: process.env.VITE_FLUTTERWAVE_PUBLIC_KEY || '',
+      appUrl: process.env.VITE_APP_URL || ''
+    };
+    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' });
+    res.end(`window.PUDATA_CONFIG = ${JSON.stringify(publicConfig)};`);
+    return;
+  }
+
   const requested = normalize(url.pathname === '/' ? '/index.html' : url.pathname);
   const safePath = requested.startsWith('/') ? requested.slice(1) : requested;
   const candidate = join(root, safePath);
