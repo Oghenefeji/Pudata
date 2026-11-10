@@ -11,7 +11,13 @@ const state = {
   lastReceipt: null
 };
 
-const runtimeConfig = window.PUDATA_CONFIG || {};
+const runtimeConfig = {
+  supabaseUrl: import.meta.env.VITE_SUPABASE_URL || '',
+  supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
+  flutterwavePublicKey: import.meta.env.VITE_FLUTTERWAVE_PUBLIC_KEY || '',
+  appUrl: import.meta.env.VITE_APP_URL || '',
+  supportWhatsappUrl: import.meta.env.VITE_SUPPORT_WHATSAPP_URL || ''
+};
 const supabaseClient = runtimeConfig.supabaseUrl && runtimeConfig.supabaseAnonKey && window.supabase
   ? window.supabase.createClient(runtimeConfig.supabaseUrl, runtimeConfig.supabaseAnonKey)
   : null;
