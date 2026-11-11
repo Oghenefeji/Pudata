@@ -19,6 +19,9 @@
 - [x] Cable supports provider, smart-card number verification through verify-customer, and plan.
 - [x] Education and data/recharge card pins support quantity 1–5 or 10.
 - [x] Customer pages query selling prices only and never query product_costs.
+- [x] Electricity is active when electricity products exist; customers choose distribution company and a Prepaid/Postpaid product, enter a meter number, verify it first, confirm the customer name, enter ₦500–₦100,000, and pay.
+- [x] Electricity calls create-purchase with only `parameters.meter_number` and `parameters.amount`.
+- [x] Successful electricity receipts render returned service details and copyable tokens; guests can retrieve them through guest-receipt using reference plus email.
 
 ## Profile and sessions
 - [x] The profile page edits full name and phone number.

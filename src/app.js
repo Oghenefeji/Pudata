@@ -114,10 +114,10 @@ async function syncSession() {
 }
 
 function serviceProducts(type) { return state.products.filter((product) => product.product_type === type && product.active && Number(product.selling_price) > 0); }
-function serviceIsAvailable(card) { return card.type !== 'electricity' && serviceProducts(card.type).length > 0; }
+function serviceIsAvailable(card) { return serviceProducts(card.type).length > 0; }
 function productNetwork(product, type) {
   const category = state.categories.find((item) => item.id === product.category_id);
-  return metadataValue(product, type === 'tv' ? ['provider', 'network', 'operator'] : ['network', 'provider', 'operator']) || category?.name || product.name.split(/\s+/)[0] || 'Other';
+  return metadataValue(product, type === 'tv' ? ['provider', 'network', 'operator'] : ['network', 'provider', 'operator', 'distribution_company', 'disco']) || category?.name || product.name.split(/\s+/)[0] || 'Other';
 }
 function productLabel(product, type) { return `${productNetwork(product, type)} · ${product.name}`; }
 function iconSvg(icon) {
@@ -186,7 +186,29 @@ function showHelp() {
   const whatsapp = runtimeConfig.supportWhatsappUrl ? `<a class="button button-dark" href="${escapeHtml(runtimeConfig.supportWhatsappUrl)}" target="_blank" rel="noreferrer">WhatsApp support ↗</a>` : '<span class="notice">WhatsApp support link is not configured yet.</span>';
   openModal({ kicker: 'HELP CENTRE', title: 'How can we help?', intro: `Email ${supportEmail} for support.`, body: `<div class="admin-list"><div class="notice"><strong>Pending order</strong><br />Keep the original reference. Do not pay again with a new reference.</div><div class="notice"><strong>Failed purchase</strong><br />Wallet purchases are returned automatically when the failure is clear.</div><div class="notice"><strong>Wallet funding</strong><br />Funding is credited only after Flutterwave verification.</div></div><div class="modal-actions"><a class="button button-outline" href="mailto:${supportEmail}">Email support ↗</a>${whatsapp}</div>` });
 }
-function showHistory() { openModal({ kicker: 'HISTORY', title: 'Your transactions', intro: state.user ? 'Live records from your account.' : 'Log in to see your account history.', body: state.user ? (state.transactions.length ? `<div class="transaction-list">${state.transactions.map(transactionRow).join('')}</div>` : '<div class="empty-state"><strong>No transactions yet</strong>Your payment activity will appear here.</div>') : '<div class="empty-state"><strong>No transactions yet</strong><button class="button button-dark" type="button" data-action="login">Log in</button></div>' }); }
+function receiptDetailsMarkup(details) {
+  if (!details) return '';
+  const entries = [];
+  const walk = (value, path) => {
+    if (value && typeof value === 'object' && !Array.isArray(value)) return Object.entries(value).forEach(([key, child]) => walk(child, path ? `${path}.${key}` : key));
+    if (value !== null && value !== undefined && value !== '') entries.push([path || 'details', String(value)]);
+  };
+  walk(details, '');
+  const rows = entries.map(([key, text]) => {
+    const isToken = /token/i.test(key);
+    return `<div class="receipt-row receipt-detail-row"><span>${escapeHtml(key.replace(/\./g, ' · ').replace(/_/g, ' '))}</span><strong>${escapeHtml(text)}</strong>${isToken ? `<button class="text-button copy-token" type="button" data-copy-token="${escapeHtml(text)}">Copy</button>` : ''}</div>`;
+  }).join('');
+  return rows ? `<div class="receipt-details"><h3>Service details</h3>${rows}</div>` : '';
+}
+function renderReceiptResult(result, fallbackAmount = 0) {
+  const details = result.details || result.pins || null;
+  return `<div class="receipt"><div class="receipt-rows"><div class="receipt-row"><span>Reference</span><strong>${escapeHtml(result.reference || '—')}</strong></div><div class="receipt-row"><span>Status</span><strong>${escapeHtml(result.status || 'pending')}</strong></div><div class="receipt-row"><span>Service</span><strong>${escapeHtml(result.service || '—')}</strong></div><div class="receipt-row"><span>Amount</span><strong>${money(result.amount || fallbackAmount)}</strong></div></div>${receiptDetailsMarkup(details)}<button class="button button-outline" type="button" data-action="guest-receipt-lookup">Look up another receipt</button></div>`;
+}
+function showReceipt(result, fallbackAmount = 0) { openModal({ kicker: 'RECEIPT', title: result.status === 'pending' ? 'Payment pending' : 'Payment complete', intro: 'Keep this reference for support or receipt lookup.', body: renderReceiptResult(result, fallbackAmount) }); }
+function showGuestReceiptLookup() {
+  openModal({ kicker: 'RECEIPT LOOKUP', title: 'Find a guest receipt', intro: 'Use the original reference and the email used at checkout.', body: '<form class="modal-form" id="guest-receipt-form"><div class="field"><label for="receipt-reference">Reference</label><input id="receipt-reference" required /></div><div class="field"><label for="receipt-email">Receipt email</label><input id="receipt-email" type="email" required /></div><div class="modal-actions"><button class="button button-dark" type="submit">Find receipt <span>↗</span></button></div></form>' });
+}
+function showHistory() { openModal({ kicker: 'HISTORY', title: 'Your transactions', intro: state.user ? 'Live records from your account.' : 'Log in to see your account history.', body: state.user ? (state.transactions.length ? `<div class="transaction-list">${state.transactions.map(transactionRow).join('')}</div>` : '<div class="empty-state"><strong>No transactions yet</strong>Your payment activity will appear here.</div>') : '<div class="empty-state"><strong>No transactions yet</strong><button class="button button-dark" type="button" data-action="login">Log in</button><button class="button button-outline" type="button" data-action="guest-receipt-lookup">Look up guest receipt</button></div>' }); }
 
 function networkOptions(type, selected = '') {
   return [...new Set(serviceProducts(type).map((product) => productNetwork(product, type)))].sort().map((network) => `<option value="${escapeHtml(network)}" ${network === selected ? 'selected' : ''}>${escapeHtml(network)}</option>`).join('');
@@ -197,16 +219,18 @@ function productOptions(type, network = '') {
 function showPurchase(kind) {
   const card = serviceCards.find((item) => item.kind === kind);
   const products = serviceProducts(card.type);
-  if (!products.length || kind === 'electricity') return showToast('This service is coming soon.');
+  if (!products.length) return showToast('This service is coming soon.');
   const initialNetwork = productNetwork(products[0], card.type);
-  const networkField = ['airtime', 'data', 'tv'].includes(kind) ? `<div class="field"><label for="network">${kind === 'tv' ? 'Cable provider' : 'Network'}</label><select id="network" data-role="network">${networkOptions(card.type, initialNetwork)}</select></div>` : '';
-  const productField = `<div class="field"><label for="product">${kind === 'data' || kind === 'tv' ? 'Plan' : 'Product'}</label><select id="product" data-role="product" data-type="${card.type}">${productOptions(card.type, initialNetwork)}</select></div>`;
+  const networkField = ['airtime', 'data', 'tv', 'electricity'].includes(kind) ? `<div class="field"><label for="network">${kind === 'tv' ? 'Cable provider' : kind === 'electricity' ? 'Distribution company' : 'Network'}</label><select id="network" data-role="network">${networkOptions(card.type, initialNetwork)}</select></div>` : '';
+  const productField = `<div class="field"><label for="product">${kind === 'data' || kind === 'tv' ? 'Plan' : kind === 'electricity' ? 'Prepaid / Postpaid' : 'Product'}</label><select id="product" data-role="product" data-type="${card.type}">${productOptions(card.type, initialNetwork)}</select></div>`;
   const phone = kind === 'airtime' || kind === 'data' ? '<div class="field"><label for="phone">Phone number</label><input id="phone" inputmode="tel" required /></div>' : '';
   const amount = kind === 'airtime' ? '<div class="field"><label for="amount">Amount</label><input id="amount" type="number" min="50" step="50" value="100" required /></div>' : '';
   const smartcard = kind === 'tv' ? '<div class="field"><label for="smart-card">Smartcard number</label><input id="smart-card" inputmode="numeric" required /><div id="customer-check" class="field-help"></div></div>' : '';
+  const meter = kind === 'electricity' ? '<div class="field"><label for="meter-number">Meter number</label><input id="meter-number" inputmode="numeric" required /><div id="customer-check" class="field-help"></div></div>' : '';
+  const electricityAmount = kind === 'electricity' ? '<div class="field"><label for="electricity-amount">Amount</label><input id="electricity-amount" type="number" min="500" max="100000" step="1" value="500" required /></div>' : '';
   const quantity = ['education', 'data_card', 'recharge_card'].includes(kind) ? '<div class="field"><label for="quantity">Quantity</label><select id="quantity"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>10</option></select></div>' : '';
   const email = !state.user ? '<div class="field"><label for="email">Receipt email</label><input id="email" type="email" required /></div>' : '';
-  openModal({ kicker: 'CHECKOUT', title: card.title, intro: state.user ? 'Pay from your live wallet.' : 'Pay with Flutterwave and receive a receipt reference.', body: `<form class="modal-form" id="purchase-form" data-kind="${kind}" data-type="${card.type}">${networkField}${productField}${phone}${amount}${smartcard}${quantity}${email}<div class="modal-actions"><button class="button button-dark" type="submit">${state.user ? 'Pay from wallet' : 'Continue to payment'} <span>↗</span></button></div></form>` });
+  openModal({ kicker: 'CHECKOUT', title: card.title, intro: kind === 'electricity' ? 'Verify the meter customer before paying.' : state.user ? 'Pay from your live wallet.' : 'Pay with Flutterwave and receive a receipt reference.', body: `<form class="modal-form" id="purchase-form" data-kind="${kind}" data-type="${card.type}">${networkField}${productField}${phone}${amount}${smartcard}${meter}${electricityAmount}${quantity}${email}<div class="modal-actions"><button class="button button-dark" type="submit">${state.user ? 'Pay from wallet' : 'Continue to payment'} <span>↗</span></button></div></form>` });
 }
 function walletFundingRef() { if (!state.user?.id) throw new Error('Log in to fund your wallet.'); return `FUND_${state.user.id}_${randomPart()}`; }
 function launchFlutterwave({ amount, txRef, email, onSuccess }) {
@@ -222,25 +246,27 @@ function showFundWallet() {
 function fundingAmount() { const preset = $('#fund-preset')?.value; const custom = Number($('#fund-custom')?.value || 0); return preset === 'custom' ? custom : Number(preset || custom || 0); }
 function updateFundingSummary() { const amount = fundingAmount(); const summary = $('#funding-summary'); if (summary) summary.innerHTML = `<span>Amount ${money(amount)}</span><span>Fee ${money(FUNDING_FEE)}</span><strong>Total ${money(amount + FUNDING_FEE)}</strong>`; }
 
-async function verifyCableCustomer(form, product) {
+async function verifyCustomer(form, product, kind) {
   if (form.dataset.customerVerified === 'true') return true;
-  const idNumber = $('#smart-card', form).value.trim();
-  const result = await invokeFunction('verify-customer', { service_id: product.service_id, category_id: product.category_id, id_number: idNumber, product_id: product.id, amount: Number(product.selling_price) });
-  if (!result.verified) throw new Error('Cable customer verification failed.');
+  const idNumber = kind === 'electricity' ? $('#meter-number', form).value.trim() : $('#smart-card', form).value.trim();
+  const verificationAmount = kind === 'electricity' ? Number($('#electricity-amount', form).value) : Number(product.selling_price);
+  const result = await invokeFunction('verify-customer', { service_id: product.service_id, category_id: product.category_id, id_number: idNumber, product_id: product.id, amount: verificationAmount });
+  if (!result.verified) throw new Error(`${kind === 'electricity' ? 'Meter' : 'Cable'} customer verification failed.`);
   form.dataset.customerVerified = 'true';
-  $('#customer-check', form).textContent = result.customer_name ? `Verified for ${result.customer_name}` : 'Cable customer verified.';
+  $('#customer-check', form).textContent = result.customer_name ? `Verified for ${result.customer_name}` : `${kind === 'electricity' ? 'Meter' : 'Cable'} customer verified.`;
   return true;
 }
 function purchaseParameters(form, kind) {
   if (kind === 'airtime') return { phone_number: $('#phone', form).value.trim(), amount: Number($('#amount', form).value) };
   if (kind === 'data') return { phone_number: $('#phone', form).value.trim() };
   if (kind === 'tv') return { smart_card_number: $('#smart-card', form).value.trim() };
+  if (kind === 'electricity') return { meter_number: $('#meter-number', form).value.trim(), amount: Number($('#electricity-amount', form).value) };
   return { quantity: Number($('#quantity', form).value) };
 }
 async function completeGuestPurchase(pending) {
   const result = await invokeFunction('create-purchase', { product_id: pending.product_id, email: pending.email, payment_tx_ref: pending.tx_ref, parameters: pending.parameters });
   localStorage.removeItem('pudata_pending_guest_purchase');
-  openModal({ kicker: 'RECEIPT', title: result.status === 'pending' ? 'Payment pending' : 'Payment complete', intro: 'Keep this reference for support or receipt lookup.', body: `<div class="receipt"><div class="receipt-rows"><div class="receipt-row"><span>Reference</span><strong>${escapeHtml(result.reference || pending.tx_ref)}</strong></div><div class="receipt-row"><span>Status</span><strong>${escapeHtml(result.status || 'pending')}</strong></div><div class="receipt-row"><span>Amount</span><strong>${money(pending.amount)}</strong></div></div></div>` });
+  showReceipt({ ...result, reference: result.reference || pending.tx_ref }, pending.amount);
 }
 function retryPendingGuestPurchase() {
   const raw = localStorage.getItem('pudata_pending_guest_purchase');
@@ -371,6 +397,11 @@ async function handleSubmit(form) {
     if (result.error) throw result.error; await syncSession(); closeModal(); showToast(signup ? 'Account created. Check your email if confirmation is enabled.' : 'You are signed in.'); return;
   }
   if (form.id === 'profile-form') { await saveProfile(form); return; }
+  if (form.id === 'guest-receipt-form') {
+    const result = await invokeFunction('guest-receipt', { reference: $('#receipt-reference', form).value.trim(), email: $('#receipt-email', form).value.trim() });
+    showReceipt(result, result.amount);
+    return;
+  }
   if (form.id === 'fund-form') {
     const amount = fundingAmount(); if (!Number.isFinite(amount) || amount < 200) throw new Error('Minimum wallet funding amount is ₦200.');
     const total = amount + FUNDING_FEE; const txRef = walletFundingRef(); closeModal();
@@ -378,10 +409,11 @@ async function handleSubmit(form) {
   }
   if (form.id === 'purchase-form') {
     const kind = form.dataset.kind; const type = form.dataset.type; const product = state.products.find((item) => item.id === $('#product', form).value); if (!product) throw new Error('Choose an available catalogue product.');
-    if (kind === 'tv') await verifyCableCustomer(form, product);
-    const parameters = purchaseParameters(form, kind); const amount = kind === 'airtime' ? parameters.amount : Number(product.selling_price);
+    if (kind === 'tv' || kind === 'electricity') await verifyCustomer(form, product, kind);
+    const parameters = purchaseParameters(form, kind); const amount = ['airtime', 'electricity'].includes(kind) ? parameters.amount : Number(product.selling_price);
     if (kind === 'airtime' && amount < 50) throw new Error('Airtime amount must be at least ₦50.');
-    if (state.user) { const result = await invokeFunction('create-purchase', { product_id: product.id, parameters }); await loadUserData(); render(); closeModal(); openModal({ kicker: 'RECEIPT', title: result.status === 'pending' ? 'Payment pending' : 'Payment complete', intro: 'Keep this reference for support.', body: `<div class="receipt"><div class="receipt-row"><span>Reference</span><strong>${escapeHtml(result.reference || '—')}</strong></div><div class="receipt-row"><span>Status</span><strong>${escapeHtml(result.status || 'pending')}</strong></div></div>` }); return; }
+    if (kind === 'electricity' && (parameters.amount < 500 || parameters.amount > 100000)) throw new Error('Electricity amount must be between ₦500 and ₦100,000.');
+    if (state.user) { const result = await invokeFunction('create-purchase', { product_id: product.id, parameters }); await loadUserData(); render(); closeModal(); showReceipt(result, amount); return; }
     const email = $('#email', form).value.trim(); const pending = { product_id: product.id, kind, type, amount, email, parameters, tx_ref: `PUD_${new Date().getFullYear()}_${randomPart()}` }; localStorage.setItem('pudata_pending_guest_purchase', JSON.stringify(pending)); closeModal();
     launchFlutterwave({ amount, txRef: pending.tx_ref, email, onSuccess: async (response) => { if (!['successful', 'completed'].includes(response?.status)) return showToast('Flutterwave did not confirm this payment.'); try { await completeGuestPurchase(pending); } catch { showToast(`Fulfilment needs a retry with ${pending.tx_ref}.`); } } });
   }
@@ -393,11 +425,12 @@ function handleAction(action, target) {
   if (action === 'fund-wallet') showFundWallet(); if (action === 'history') showHistory(); if (action === 'help') showHelp(); if (action === 'more') openDrawer(); if (action === 'close-menu') closeDrawer(); if (action === 'close-modal') closeModal();
   if (action === 'toggle-services') { state.showAllServices = !state.showAllServices; render(); }
   if (action === 'service') showPurchase(target.dataset.service); if (action === 'refresh-wallet') loadUserData().then(render);
+  if (action === 'guest-receipt-lookup') showGuestReceiptLookup();
   if (action === 'remove-avatar') removeAvatar().catch((error) => showToast(error.message));
   if (action === 'retry-guest') { const pending = JSON.parse(localStorage.getItem('pudata_pending_guest_purchase') || 'null'); if (pending) { closeModal(); launchFlutterwave({ amount: pending.amount, txRef: pending.tx_ref, email: pending.email, onSuccess: async (response) => { if (['successful', 'completed'].includes(response?.status)) { try { await completeGuestPurchase(pending); } catch { showToast(`Fulfilment needs a retry with ${pending.tx_ref}.`); } } } }); } }
 }
 
-document.addEventListener('click', (event) => { const routeTarget = event.target.closest('[data-route]'); if (routeTarget) { event.preventDefault(); navigate(routeTarget.dataset.route); return; } const adminTarget = event.target.closest('[data-admin-action]'); if (adminTarget) { event.preventDefault(); handleAdminAction(adminTarget); return; } const actionTarget = event.target.closest('[data-action]'); if (actionTarget) handleAction(actionTarget.dataset.action, actionTarget); });
+document.addEventListener('click', (event) => { const copyTarget = event.target.closest('[data-copy-token]'); if (copyTarget) { const copyPromise = navigator.clipboard ? navigator.clipboard.writeText(copyTarget.dataset.copyToken) : Promise.reject(new Error('Clipboard unavailable')); copyPromise.then(() => showToast('Token copied.')).catch(() => showToast('Copy failed.')); return; } const routeTarget = event.target.closest('[data-route]'); if (routeTarget) { event.preventDefault(); navigate(routeTarget.dataset.route); return; } const adminTarget = event.target.closest('[data-admin-action]'); if (adminTarget) { event.preventDefault(); handleAdminAction(adminTarget); return; } const actionTarget = event.target.closest('[data-action]'); if (actionTarget) handleAction(actionTarget.dataset.action, actionTarget); });
 document.addEventListener('submit', (event) => { event.preventDefault(); handleSubmit(event.target).catch((error) => showToast(error.message || 'Something went wrong.')); });
 document.addEventListener('change', (event) => {
   if (event.target.id === 'fund-preset' || event.target.id === 'fund-custom') updateFundingSummary();
@@ -408,6 +441,10 @@ document.addEventListener('change', (event) => {
   if (event.target.id === 'margin-value') state.admin.marginValue = event.target.value;
 });
 document.addEventListener('input', (event) => {
+  if (['meter-number', 'smart-card', 'electricity-amount'].includes(event.target.id)) {
+    const form = event.target.closest('#purchase-form');
+    if (form) { form.dataset.customerVerified = 'false'; if ($('#customer-check', form)) $('#customer-check', form).textContent = ''; }
+  }
   if (event.target.id === 'admin-reference-filter') { state.admin.referenceFilter = event.target.value; render(); const input = $('#admin-reference-filter'); if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); } }
   if (event.target.id === 'admin-product-search') { state.admin.productSearch = event.target.value; state.admin.productPage = 1; render(); const input = $('#admin-product-search'); if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); } }
 });

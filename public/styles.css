@@ -153,4 +153,9 @@ h1, h2, h3, .wallet-balance, .brand-name { font-family: Manrope, Arial, sans-ser
 .toggle.on { background: var(--ink); color: white; border-color: var(--ink); }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 2px 0; color: var(--muted); font-size: 11px; }
 .pagination button:disabled { opacity: .4; cursor: not-allowed; }
+.receipt-details { margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--line); }
+.receipt-details h3 { font-size: 13px; margin-bottom: 10px; }
+.receipt-detail-row { position: relative; align-items: center; }
+.receipt-detail-row strong { max-width: 62%; overflow-wrap: anywhere; }
+.receipt-detail-row .copy-token { color: var(--ink); margin-left: auto; padding-left: 6px; }
 @media (max-width: 560px) { .profile-picture-actions { justify-content: stretch; } .profile-picture-actions .button { flex: 1; } .admin-head { align-items: flex-start; } .admin-head .button { flex: 0 0 auto; } .funding-summary { grid-template-columns: 1fr; } .funding-summary strong { grid-column: auto; } }
