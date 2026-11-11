@@ -1,16 +1,3 @@
-const state = {
-  loggedIn: false,
-  wallet: 0,
-  user: null,
-  session: null,
-  modal: null,
-  drawerOpen: false,
-  selectedService: null,
-  catalogueReady: true,
-  txCount: 3,
-  lastReceipt: null
-};
-
 const runtimeConfig = {
   supabaseUrl: import.meta.env.VITE_SUPABASE_URL || '',
   supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
@@ -18,131 +5,49 @@ const runtimeConfig = {
   appUrl: import.meta.env.VITE_APP_URL || '',
   supportWhatsappUrl: import.meta.env.VITE_SUPPORT_WHATSAPP_URL || ''
 };
+
+const supportEmail = 'teamfeji4@gmail.com';
 const supabaseClient = runtimeConfig.supabaseUrl && runtimeConfig.supabaseAnonKey && window.supabase
   ? window.supabase.createClient(runtimeConfig.supabaseUrl, runtimeConfig.supabaseAnonKey)
   : null;
 
-function randomRefPart() {
-  return crypto.randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
-}
-
-async function refreshWallet() {
-  if (!supabaseClient || !state.user) return;
-  const { data, error } = await supabaseClient.from('wallets').select('balance').eq('user_id', state.user.id).single();
-  if (!error && data) {
-    state.wallet = Number(data.balance || 0);
-    updateProfile();
-  }
-}
-
-async function syncSession() {
-  if (!supabaseClient) return;
-  const { data } = await supabaseClient.auth.getSession();
-  state.session = data.session;
-  state.user = data.session?.user || null;
-  state.loggedIn = Boolean(state.user);
-  updateProfile();
-  await refreshWallet();
-  await retryPendingGuestPurchase();
-}
-
-async function invokeFunction(name, body) {
-  if (!supabaseClient) throw new Error('Supabase frontend variables are not configured');
-  const { data, error } = await supabaseClient.functions.invoke(name, { body });
-  if (error) throw error;
-  return data;
-}
-
-function walletFundingRef() {
-  if (!state.user?.id) throw new Error('You must be logged in to fund a wallet');
-  return `FUND_${state.user.id}_${randomRefPart()}`;
-}
-
-function guestPaymentRef() {
-  return `PUD_${new Date().getFullYear()}_${randomRefPart()}`;
-}
-
-function launchFlutterwave({ amount, txRef, email, onSuccess }) {
-  if (!window.FlutterwaveCheckout || !runtimeConfig.flutterwavePublicKey) {
-    showToast('Flutterwave is not configured yet. Add the public key in Manus project variables.');
-    return;
-  }
-  window.FlutterwaveCheckout({
-    public_key: runtimeConfig.flutterwavePublicKey,
-    tx_ref: txRef,
-    amount,
-    currency: 'NGN',
-    payment_options: 'card,banktransfer,ussd',
-    customer: { email },
-    customizations: { title: 'pudata', description: 'Everyday payments, made clear' },
-    callback: onSuccess,
-    onclose: () => showToast('Checkout closed. You can retry with the same transaction reference.')
-  });
-}
-
-const services = [
-  { id: 'airtime', title: 'Buy Airtime', subtitle: 'MTN · Airtel · Glo · 9mobile', tone: 'butter', art: 'airtime', active: true, kind: 'airtime' },
-  { id: 'data', title: 'Buy Data', subtitle: 'Plans from ₦100', tone: 'mint', art: 'data', active: true, kind: 'data' },
-  { id: 'tv', title: 'Pay TV Subscription', subtitle: 'DSTV · GOtv', tone: 'lavender', art: 'tv', active: true, kind: 'tv' },
-  { id: 'electricity', title: 'Pay Electricity Bills', subtitle: 'Coming soon', tone: 'peach', art: 'electricity', active: false, kind: 'electricity' },
-  { id: 'education', title: 'Education Payments', subtitle: 'WAEC · NECO pins', tone: 'sky', art: 'education', active: true, kind: 'education' },
-  { id: 'pins', title: 'Data / Recharge Pins', subtitle: 'Instant delivery', tone: 'lemon', art: 'pins', active: true, kind: 'pins' },
-  { id: 'transactions', title: 'Transactions', subtitle: 'Receipts and status', tone: 'paper', art: 'transactions', active: true, kind: 'transactions' },
-  { id: 'referrals', title: 'Referral & Rewards', subtitle: 'Share the good stuff', tone: 'mint', art: 'referrals', active: true, kind: 'referrals' },
-  { id: 'all', title: 'All Services', subtitle: 'See the full catalogue', tone: 'lavender', art: 'all', active: true, kind: 'all' }
-];
-
-const svg = {
-  airtime: '<svg viewBox="0 0 100 80" aria-hidden="true"><rect x="23" y="10" width="49" height="63" rx="10" fill="#ff4d5a" transform="rotate(-8 23 10)"/><rect x="30" y="19" width="35" height="45" rx="5" fill="#ff6b6b" transform="rotate(-8 30 19)"/><circle cx="48" cy="56" r="4" fill="#ff4d5a"/><path d="M39 29c5-5 13-6 19-2M40 36c3-3 8-4 12-2" fill="none" stroke="#ff4d5a" stroke-width="3" stroke-linecap="round"/></svg>',
-  data: '<svg viewBox="0 0 100 80" aria-hidden="true"><path d="M42 10c20 0 37 16 37 36S62 72 42 72 5 56 5 36 22 10 42 10Z" fill="#fff" opacity=".75"/><path d="M46 14 30 43h14l-5 23 19-31H44Z" fill="#ff4d5a"/><circle cx="78" cy="17" r="7" fill="#ff6b6b"/><circle cx="83" cy="67" r="4" fill="#ff4d5a" opacity=".25"/></svg>',
-  tv: '<svg viewBox="0 0 100 80" aria-hidden="true"><rect x="13" y="20" width="66" height="44" rx="8" fill="#ff4d5a"/><rect x="19" y="26" width="54" height="31" rx="4" fill="#fff1f2"/><path d="m25 50 12-11 8 7 10-14 11 18Z" fill="#ff6b6b"/><path d="M37 68h19M47 64v4" stroke="#ff4d5a" stroke-width="4" stroke-linecap="round"/><circle cx="82" cy="29" r="9" fill="#ff6b6b"/><path d="M79 29h6M82 26v6" stroke="#ff4d5a" stroke-width="2" stroke-linecap="round"/></svg>',
-  electricity: '<svg viewBox="0 0 100 80" aria-hidden="true"><path d="M43 8h22L53 32h17L40 73l7-29H30Z" fill="#ff4d5a"/><circle cx="70" cy="60" r="12" fill="#fff" opacity=".76"/><path d="M70 52v16M62 60h16" stroke="#ff4d5a" stroke-width="3" stroke-linecap="round"/></svg>',
-  education: '<svg viewBox="0 0 100 80" aria-hidden="true"><path d="m11 27 38-15 40 15-40 16Z" fill="#ff4d5a"/><path d="M22 32v19c11 9 41 9 54 0V32L49 43Z" fill="#fff" opacity=".8"/><path d="M86 27v27" stroke="#ff4d5a" stroke-width="4" stroke-linecap="round"/><circle cx="86" cy="57" r="4" fill="#ff6b6b"/></svg>',
-  pins: '<svg viewBox="0 0 100 80" aria-hidden="true"><rect x="15" y="22" width="56" height="39" rx="8" fill="#ff4d5a" transform="rotate(-8 15 22)"/><rect x="30" y="17" width="56" height="39" rx="8" fill="#fff" transform="rotate(8 30 17)"/><path d="M45 33h25M45 41h17" stroke="#ff4d5a" stroke-width="3" stroke-linecap="round"/><circle cx="73" cy="46" r="5" fill="#ff6b6b"/></svg>',
-  transactions: '<svg viewBox="0 0 100 80" aria-hidden="true"><rect x="25" y="9" width="47" height="61" rx="8" fill="#fff" stroke="#ff4d5a" stroke-width="3"/><path d="M36 24h25M36 34h25M36 44h14" stroke="#ff4d5a" stroke-width="3" stroke-linecap="round"/><circle cx="64" cy="59" r="12" fill="#ff6b6b"/><path d="m58 59 4 4 8-9" fill="none" stroke="#ff4d5a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  referrals: '<svg viewBox="0 0 100 80" aria-hidden="true"><circle cx="38" cy="34" r="13" fill="#ff4d5a"/><circle cx="68" cy="27" r="10" fill="#ff4d5a" opacity=".8"/><circle cx="73" cy="57" r="13" fill="#ff6b6b"/><path d="M51 32 61 29M48 44l15 8" stroke="#ff4d5a" stroke-width="4" stroke-linecap="round"/><path d="m71 48 3 7 7 1-5 5 1 7-7-3-6 3 1-7-5-5 7-1Z" fill="#fff"/></svg>',
-  all: '<svg viewBox="0 0 100 80" aria-hidden="true"><rect x="14" y="13" width="28" height="25" rx="7" fill="#ff4d5a"/><rect x="49" y="13" width="36" height="25" rx="7" fill="#ff6b6b"/><rect x="14" y="47" width="36" height="24" rx="7" fill="#fff" stroke="#ff4d5a" stroke-width="3"/><rect x="57" y="47" width="28" height="24" rx="7" fill="#ff4d5a" opacity=".75"/></svg>'
+const state = {
+  user: null,
+  session: null,
+  profile: null,
+  wallet: null,
+  transactions: [],
+  products: [],
+  isAdmin: false,
+  showAllServices: false,
+  route: window.location.pathname || '/',
+  admin: { loading: false, users: [], transactions: [], statsTransactions: [], pricing: [], announcements: [], support: null, userCount: 0, error: '', statusFilter: '', referenceFilter: '' }
 };
+
+const serviceCards = [
+  { kind: 'airtime', type: 'airtime', title: 'Airtime', letter: 'A' },
+  { kind: 'data', type: 'data', title: 'Data', letter: 'D' },
+  { kind: 'tv', type: 'tv', title: 'Cable', letter: 'C' },
+  { kind: 'electricity', type: 'electricity', title: 'Electricity', letter: 'E' },
+  { kind: 'education', type: 'education', title: 'Education pins', letter: 'P' },
+  { kind: 'data_card', type: 'data_card', title: 'Data card pins', letter: 'D' },
+  { kind: 'recharge_card', type: 'recharge_card', title: 'Recharge card pins', letter: 'R' }
+];
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
-}
-
-function renderServices() {
-  const grid = $('#service-grid');
-  grid.innerHTML = services.map((service) => `
-    <article class="service-card ${service.active ? '' : 'is-disabled'}" data-tone="${service.tone}">
-      <span class="service-status ${service.active ? 'active' : ''}">${service.active ? 'Available now' : 'Coming soon'}</span>
-      <div class="service-art">${svg[service.art]}</div>
-      <div class="service-content">
-        <div><h3 class="service-title">${service.title}</h3><span class="service-subtitle">${service.subtitle}</span></div>
-        <button class="service-cta" type="button" ${service.active ? `data-action="service" data-service="${service.kind}"` : 'disabled'} aria-label="${service.active ? `Open ${service.title}` : `${service.title} coming soon`}">${service.active ? '↗' : '·'}</button>
-      </div>
-    </article>
-  `).join('');
-}
-
-function openDrawer() {
-  state.drawerOpen = true;
-  document.body.classList.add('drawer-open');
-  $('.side-drawer').setAttribute('aria-hidden', 'false');
-}
-
-function closeDrawer() {
-  state.drawerOpen = false;
-  document.body.classList.remove('drawer-open');
-  $('.side-drawer').setAttribute('aria-hidden', 'true');
-}
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[c]));
+const money = (value) => `₦${Number(value || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`;
+const dateText = (value) => value ? new Date(value).toLocaleString('en-NG', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+const firstName = () => (state.profile?.full_name || state.user?.email?.split('@')[0] || '').trim().split(/\s+/)[0];
+const randomPart = () => crypto.randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
 
 function showToast(message) {
   const toast = $('#toast');
   toast.textContent = message;
   toast.classList.add('show');
-  window.clearTimeout(showToast.timer);
-  showToast.timer = window.setTimeout(() => toast.classList.remove('show'), 3200);
+  clearTimeout(showToast.timer);
+  showToast.timer = setTimeout(() => toast.classList.remove('show'), 3500);
 }
 
 function openModal({ kicker = 'PUDATA', title, intro = '', body }) {
@@ -152,243 +57,371 @@ function openModal({ kicker = 'PUDATA', title, intro = '', body }) {
   $('#modal-body').innerHTML = body;
   $('#modal-layer').classList.add('is-open');
   $('#modal-layer').setAttribute('aria-hidden', 'false');
-  document.body.classList.add('modal-open');
 }
-
 function closeModal() {
   $('#modal-layer').classList.remove('is-open');
   $('#modal-layer').setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('modal-open');
-  state.modal = null;
+}
+function openDrawer() {
+  document.body.classList.add('drawer-open');
+  $('#drawer').setAttribute('aria-hidden', 'false');
+}
+function closeDrawer() {
+  document.body.classList.remove('drawer-open');
+  $('#drawer').setAttribute('aria-hidden', 'true');
 }
 
-function serviceOptions(kind) {
-  if (kind === 'airtime') return '<option>MTN</option><option>Airtel</option><option>Glo</option><option>9mobile</option>';
-  if (kind === 'data') return '<option>MTN</option><option>Airtel</option><option>Glo</option><option>9mobile</option>';
-  if (kind === 'tv') return '<option>DSTV</option><option>GOtv</option>';
-  if (kind === 'education') return '<option>WAEC result checker</option><option>NECO result checker</option>';
-  return '<option>MTN data card</option><option>MTN recharge card</option><option>Airtel recharge card</option>';
+async function invokeFunction(name, body) {
+  if (!supabaseClient) throw new Error('Supabase is not configured.');
+  const { data, error } = await supabaseClient.functions.invoke(name, { body });
+  if (error) throw error;
+  return data;
 }
 
-function showPurchase(kind) {
-  state.selectedService = kind;
-  const titles = { airtime: 'Buy airtime', data: 'Pick a data plan', tv: 'Pay TV subscription', education: 'Get an education pin', pins: 'Get a recharge pin' };
-  const copy = { airtime: 'Top up any Nigerian network. The minimum airtime amount is ₦50.', data: 'Pick a plan, enter a phone number, and we’ll keep the receipt close.', tv: 'Verify the customer before you pay. Your name will appear on the next step.', education: 'Choose a provider and quantity. We support 1–5 and 10 pins.', pins: 'Choose a product and quantity. Pins are shown on the receipt after success.' };
-  const isAirtime = kind === 'airtime';
-  const isTv = kind === 'tv';
-  const isEducation = kind === 'education';
-  const isPins = kind === 'pins';
-  const networkLabel = isTv ? 'TV provider' : isEducation || isPins ? 'Product' : 'Network';
-  const networkField = `<div class="field"><label for="network">${networkLabel}</label><select id="network">${serviceOptions(kind)}</select></div>`;
-  let planField = '';
-  if (kind === 'data') planField = '<div class="field"><label for="plan">Plan</label><select id="plan"><option>1.5GB · 30 days · ₦1,000</option><option>3GB · 30 days · ₦2,000</option><option>10GB · 30 days · ₦5,000</option></select></div>';
-  if (isTv) planField = '<div class="field"><label for="plan">Subscription</label><select id="plan"><option>DSTV Compact · ₦15,700</option><option>GOtv Max · ₦8,500</option></select></div>';
-  const idField = isTv ? '<div class="field"><label for="customer-id">Smart card number</label><input id="customer-id" inputmode="numeric" placeholder="e.g. 4123456789" required /></div>' : '';
-  const amountField = isAirtime ? '<div class="field"><label for="amount">Amount (minimum ₦50)</label><input id="amount" type="number" min="50" step="50" value="100" required /></div>' : '';
-  const qtyField = isEducation || isPins ? '<div class="field"><label for="quantity">Quantity</label><select id="quantity"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>10</option></select></div>' : '';
-  const phoneField = !isTv && !isEducation && !isPins ? '<div class="field"><label for="phone">Phone number</label><input id="phone" inputmode="tel" placeholder="0800 000 0000" required /></div>' : '';
-  const emailField = '<div class="field"><label for="email">Receipt email</label><input id="email" type="email" placeholder="you@example.com" required /></div>';
-  const walletLine = state.loggedIn ? '<div class="modal-quiet">Pay from your wallet instantly. Guests can pay with Flutterwave card, transfer, or USSD.</div>' : '<div class="modal-quiet">Guest checkout is available. We’ll verify Flutterwave server-side before fulfilling.</div>';
-  openModal({ kicker: 'SERVICE CHECKOUT', title: titles[kind], intro: copy[kind], body: `<form class="modal-form" id="purchase-form">${networkField}${planField}${idField}${phoneField}${amountField}${qtyField}${emailField}<div class="modal-actions"><button class="button button-dark" type="submit">${state.loggedIn ? 'Pay from wallet' : 'Continue to payment'} <span>↗</span></button></div>${walletLine}</form>` });
+async function loadCatalogue() {
+  if (!supabaseClient) return;
+  const { data, error } = await supabaseClient.from('catalogue_products').select('id,service_id,category_id,name,description,product_type,selling_price,active,metadata').eq('active', true).order('name');
+  if (!error) state.products = data || [];
 }
 
-function showLogin() {
-  openModal({ kicker: 'YOUR PUDATA ACCOUNT', title: 'Keep payments close', intro: 'Sign in to fund your wallet once, see every receipt, and get moving faster.', body: `<form class="modal-form" id="login-form"><div class="field"><label for="login-email">Email address</label><input id="login-email" type="email" placeholder="you@example.com" required /></div><div class="field"><label for="login-password">Password</label><input id="login-password" type="password" placeholder="••••••••" required /></div><div class="modal-actions"><button class="button button-dark" type="submit">Log in <span>↗</span></button></div><div class="modal-quiet">Your session is managed by Supabase Auth. Wallet balance is always read from the server.</div></form>` });
+async function loadUserData() {
+  if (!supabaseClient || !state.user) {
+    state.profile = null;
+    state.wallet = null;
+    state.transactions = [];
+    state.isAdmin = false;
+    return;
+  }
+  const [profileResult, walletResult, transactionResult] = await Promise.all([
+    supabaseClient.from('profiles').select('id,email,full_name,phone,role,suspended,created_at').eq('id', state.user.id).single(),
+    supabaseClient.from('wallets').select('balance,currency,updated_at').eq('user_id', state.user.id).single(),
+    supabaseClient.from('transactions').select('id,client_reference,service_type,status,amount,currency,pulseflow_ref,created_at,updated_at,pin_payload,failure_reason').eq('user_id', state.user.id).order('created_at', { ascending: false }).limit(50)
+  ]);
+  state.profile = profileResult.data || null;
+  state.wallet = walletResult.data || { balance: 0, currency: 'NGN' };
+  state.transactions = transactionResult.data || [];
+  state.isAdmin = Boolean(state.profile && !state.profile.suspended && ['admin', 'support'].includes(state.profile.role));
+}
+
+async function syncSession() {
+  if (!supabaseClient) {
+    render();
+    return;
+  }
+  const { data } = await supabaseClient.auth.getSession();
+  state.session = data.session;
+  state.user = data.session?.user || null;
+  await Promise.all([loadUserData(), loadCatalogue()]);
+  render();
+  await retryPendingGuestPurchase();
+}
+
+function serviceProducts(type) {
+  return state.products.filter((product) => product.product_type === type && product.active);
+}
+function serviceIsAvailable(card) {
+  return card.type !== 'electricity' && serviceProducts(card.type).length > 0;
+}
+
+function renderDashboard() {
+  const now = new Date();
+  const greeting = state.user ? `Good ${now.getHours() < 12 ? 'morning' : now.getHours() < 18 ? 'afternoon' : 'evening'}, ${escapeHtml(firstName())}!` : 'Welcome to pudata';
+  const walletContent = state.user
+    ? `<div class="wallet-top"><div><span class="wallet-label">YOUR WALLET</span><strong class="wallet-balance">${money(state.wallet?.balance)}</strong></div><button class="refresh-button" type="button" data-action="refresh-wallet" aria-label="Refresh wallet">↻</button></div><div class="wallet-bottom"><span class="wallet-note">Available for active services.</span><button class="button button-light" type="button" data-action="fund-wallet">Add Funds <span>+</span></button></div>`
+    : `<div class="wallet-top"><div><span class="wallet-label">YOUR WALLET</span><strong class="wallet-balance">Log in to fund your wallet</strong></div><button class="refresh-button" type="button" data-action="login" aria-label="Log in">↗</button></div><div class="wallet-bottom"><span class="wallet-note">Guest checkout remains available.</span><button class="button button-light" type="button" data-action="login">Log in <span>↗</span></button></div>`;
+  const visible = state.showAllServices ? serviceCards : serviceCards.slice(0, 4);
+  const servicesHtml = visible.map((card) => {
+    const available = serviceIsAvailable(card);
+    return `<button class="service-card ${available ? '' : 'is-disabled'}" type="button" ${available ? `data-action="service" data-service="${card.kind}"` : 'disabled'}><span class="service-icon">${card.letter}</span><span><strong class="service-title">${card.title}</strong><small class="service-status">${available ? 'Available' : 'Coming soon'}</small></span></button>`;
+  }).join('');
+  const transactions = state.user ? state.transactions.slice(0, 5) : [];
+  const transactionHtml = !state.user
+    ? `<div class="empty-state"><strong>No transactions yet</strong>Log in to see your payment history, or keep using guest checkout and save each receipt reference.</div>`
+    : transactions.length ? `<div class="transaction-list">${transactions.map(transactionRow).join('')}</div>` : `<div class="empty-state"><strong>No transactions yet</strong>Your completed and pending payments will appear here.</div>`;
+  return `<section class="dashboard-head"><div class="date-line">${now.toLocaleDateString('en-NG', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div><h1>${greeting}</h1><p>Pay for the things that keep your day moving.</p></section><section class="wallet-card">${walletContent}</section><section class="section"><div class="section-heading"><div><h2>Services</h2><p>Choose a service to get started.</p></div><button class="text-button" type="button" data-action="toggle-services">${state.showAllServices ? 'See less' : 'See more'} ${state.showAllServices ? '↑' : '↓'}</button></div><div class="service-grid">${servicesHtml}</div></section><section class="section"><div class="section-heading"><div><h2>History</h2><p>${state.user ? 'Your latest payment activity.' : 'Your payment trail lives here after login.'}</p></div><button class="text-button" type="button" data-action="history">View all</button></div>${transactionHtml}</section>`;
+}
+
+function transactionRow(transaction) {
+  return `<div class="transaction-row"><div><strong>${escapeHtml(transaction.service_type)}</strong><span>${escapeHtml(transaction.client_reference)} · ${dateText(transaction.created_at)}</span></div><div><span class="status-pill">${escapeHtml(transaction.status)}</span><strong>${money(transaction.amount)}</strong></div></div>`;
+}
+
+function renderLegal(kind) {
+  const terms = kind === 'terms';
+  return `<article class="legal-page"><button class="text-button" type="button" data-route="/">← Back home</button><h1>${terms ? 'Terms of Service' : 'Privacy Policy'}</h1><p>Last updated: 10 November 2026</p>${terms ? `<h2>About pudata</h2><p>pudata is founded and operated by Lodjie Oghenefejiro. It helps customers buy airtime and data, pay for cable TV and electricity when available, and obtain exam pins through third-party suppliers.</p><h2>Accounts and wallet use</h2><p>You are responsible for keeping your account details secure and providing accurate phone, smartcard, and payment information. Wallet funds may be used for active services and are reflected in your account balance.</p><h2>Prices, payments, and delivery</h2><p>Prices and applicable fees are shown before payment and may change when supplier prices change. Payments are processed by Flutterwave. Airtime, data, cable, and available digital pins are normally delivered after successful supplier confirmation. An order can remain pending while a supplier response is being checked.</p><h2>Refunds</h2><p>Failed wallet purchases are refunded to the wallet automatically. Failed guest purchases are refunded after support review. Delivered pins and completed top-ups are not refundable. Purchases sent to the wrong phone number or smartcard number supplied by the customer are not refundable.</p><h2>Acceptable use and availability</h2><p>Do not use pudata for unlawful activity, fraud, abuse, or attempts to interfere with our services. Third-party availability can affect delivery times. We are not liable for indirect loss caused by supplier outages, incorrect customer details, or events outside reasonable control.</p><h2>Changes and governing law</h2><p>We may update these terms as the service changes. Nigerian law governs these terms.</p><h2>Contact</h2><p>Questions can be sent to <a href="mailto:${supportEmail}">${supportEmail}</a>.</p>` : `<h2>What we collect</h2><p>We may collect your email, phone numbers, transaction details, and device or usage data needed to operate and protect pudata.</p><h2>Why we collect it</h2><p>We use information to create accounts, process payments, deliver services, prevent fraud, provide support, keep receipts, and improve reliability.</p><h2>Who receives it</h2><p>We share only what is needed with Flutterwave and our service suppliers to process a payment or deliver a service. We do not store your card details.</p><h2>Security and retention</h2><p>We use access controls and appropriate technical safeguards. We retain information only as long as needed for the service, legal obligations, dispute handling, and accounting.</p><h2>Your rights</h2><p>You may request access, correction, or deletion of your information by emailing <a href="mailto:${supportEmail}">${supportEmail}</a>. Requests are handled in line with applicable Nigerian data protection law.</p><h2>Cookies and children</h2><p>We may use essential cookies or local storage for sessions and checkout recovery. pudata is not intended for children who cannot lawfully consent to the service.</p><h2>Changes and contact</h2><p>We may update this policy when our practices change. Contact <a href="mailto:${supportEmail}">${supportEmail}</a> with questions.</p>`}</article>`;
+}
+
+function render() {
+  state.route = window.location.pathname || '/';
+  if (state.route === '/admin' && !state.isAdmin) {
+    window.history.replaceState({}, '', '/');
+    state.route = '/';
+  }
+  const content = $('#page-content');
+  if (state.route === '/terms' || state.route === '/privacy') content.innerHTML = renderLegal(state.route.slice(1));
+  else if (state.route === '/admin') content.innerHTML = state.isAdmin ? renderAdmin() : renderDashboard();
+  else content.innerHTML = renderDashboard();
+  updateChrome();
+}
+
+function updateChrome() {
+  $('[data-avatar]').textContent = (firstName()[0] || 'G').toUpperCase();
+  const drawer = $('#drawer-links');
+  drawer.innerHTML = `<button type="button" data-action="help"><span>?</span> Help centre</button><button type="button" data-route="/terms"><span>§</span> Terms of Service</button><button type="button" data-route="/privacy"><span>⌁</span> Privacy Policy</button>${state.isAdmin ? '<button type="button" data-route="/admin"><span>⌂</span> Admin</button>' : ''}`;
+  $$('.bottom-nav-item').forEach((item) => item.classList.toggle('active', item.dataset.route === state.route || (state.route === '/admin' && item.dataset.action === 'more')));
+}
+
+function showAuth(mode = 'login') {
+  const signup = mode === 'signup';
+  openModal({ kicker: 'ACCOUNT', title: signup ? 'Create your account' : 'Log in to pudata', intro: signup ? 'Save your wallet, receipts, and payment history in one place.' : 'Use your pudata account to fund a wallet and see your history.', body: `<form class="modal-form" id="auth-form" data-mode="${signup ? 'signup' : 'login'}"><div class="field"><label for="auth-email">Email address</label><input id="auth-email" type="email" required /></div>${signup ? '<div class="field"><label for="auth-name">Full name</label><input id="auth-name" type="text" required /></div>' : ''}<div class="field"><label for="auth-password">Password</label><input id="auth-password" type="password" minlength="6" required /></div>${signup ? `<p class="modal-quiet">By signing up you agree to the <a href="/terms" data-route="/terms">Terms of Service</a> and <a href="/privacy" data-route="/privacy">Privacy Policy</a>.</p>` : ''}<div class="modal-actions"><button class="button button-dark" type="submit">${signup ? 'Sign up' : 'Log in'} <span>↗</span></button></div><button class="text-button" type="button" data-action="${signup ? 'login' : 'signup'}">${signup ? 'Already have an account? Log in' : 'Create an account'}</button></form>` });
 }
 
 function showProfile() {
-  if (!state.loggedIn) {
-    showLogin();
-    return;
-  }
-  openModal({ kicker: 'ACCOUNT', title: 'You’re signed in', intro: 'Your wallet and receipts are ready when you are.', body: `<div class="receipt"><div class="receipt-top"><span class="receipt-status"><span class="status-dot"></span> Active session</span><span class="receipt-ref">pudata member</span></div><div class="receipt-rows"><div class="receipt-row"><span>Wallet balance</span><strong>₦${state.wallet.toLocaleString('en-NG', { minimumFractionDigits: 2 })}</strong></div><div class="receipt-row"><span>Completed payments</span><strong>${state.txCount}</strong></div></div></div><div class="modal-actions"><button class="button button-dark" type="button" data-action="fund-wallet">Add funds <span>+</span></button><button class="text-button" type="button" data-action="logout">Log out</button></div>` });
-}
-
-function showFundWallet() {
-  if (!state.loggedIn) {
-    showLogin();
-    showToast('Log in to fund a wallet, or continue as a guest at checkout.');
-    return;
-  }
-  openModal({ kicker: 'WALLET', title: 'Add funds', intro: 'Fund once and pay active services from your pudata wallet.', body: `<form class="modal-form" id="fund-form"><div class="field"><label for="fund-amount">Amount</label><select id="fund-amount"><option value="1000">₦1,000</option><option value="2500">₦2,500</option><option value="5000">₦5,000</option><option value="10000">₦10,000</option></select></div><div class="option-row"><button class="option selected" type="button"><strong>Card</strong><span>Flutterwave</span></button><button class="option" type="button"><strong>Transfer</strong><span>Bank details</span></button><button class="option" type="button"><strong>USSD</strong><span>Quick code</span></button></div><div class="modal-actions"><button class="button button-dark" type="submit">Continue to payment <span>↗</span></button></div><div class="modal-quiet">After checkout, the server verifies the exact FUND_ reference, credits the wallet atomically, and the app refreshes the balance. The browser never credits it.</div></form>` });
-}
-
-function showReceipt(receipt) {
-  state.lastReceipt = receipt;
-  openModal({ kicker: 'PAYMENT RECEIPT', title: receipt.status === 'pending' ? 'Processing safely' : 'You’re all set', intro: receipt.status === 'pending' ? 'This payment is pending. We will not retry it with a new reference.' : 'Keep this reference if you need to check on your payment.', body: `<div class="receipt"><div class="receipt-top"><span class="receipt-status" style="color:${receipt.status === 'pending' ? '#ff4d5a' : '#ff4d5a'}"><span class="status-dot"></span> ${receipt.status === 'pending' ? 'Processing' : 'Successful'}</span><span class="receipt-ref">${receipt.reference}</span></div><div class="receipt-rows"><div class="receipt-row"><span>Service</span><strong>${escapeHtml(receipt.service)}</strong></div><div class="receipt-row"><span>Amount</span><strong>₦${Number(receipt.amount).toLocaleString('en-NG')}</strong></div><div class="receipt-row"><span>Customer</span><strong>${escapeHtml(receipt.email)}</strong></div><div class="receipt-row"><span>Fulfilment</span><strong>${receipt.status === 'pending' ? 'Awaiting confirmation' : 'PulseFlow fulfilled'}</strong></div></div>${receipt.pin ? `<div class="pins-box"><span>YOUR PIN</span><strong>${receipt.pin}</strong></div>` : ''}</div><div class="modal-actions"><button class="button button-dark" type="button" data-action="close-modal">Done <span>✓</span></button></div><div class="modal-quiet">Guest receipts can be looked up later with this reference and the email used at checkout.</div>` });
-}
-
-function showTransactions() {
-  openModal({ kicker: 'TRANSACTIONS', title: 'Your payment trail', intro: state.loggedIn ? 'Every payment gets a clear status and reference.' : 'Guest payments are still traceable with a reference and email.', body: `<div class="empty-state"><strong>${state.loggedIn ? 'Recent activity' : 'Look up a guest receipt'}</strong>${state.loggedIn ? 'Your connected Supabase transaction history will appear here after sign-in.' : 'Use the reference from your receipt and the same email used at checkout.'}</div>${!state.loggedIn ? '<form class="modal-form" id="lookup-form"><div class="field"><label for="lookup-ref">Transaction reference</label><input id="lookup-ref" placeholder="PUD-2026-000123" required /></div><div class="field"><label for="lookup-email">Receipt email</label><input id="lookup-email" type="email" placeholder="you@example.com" required /></div><div class="modal-actions"><button class="button button-dark" type="submit">Find receipt <span>↗</span></button></div></form>' : ''}` });
+  if (!state.user) return showAuth();
+  openModal({ kicker: 'ACCOUNT', title: escapeHtml(firstName()), intro: escapeHtml(state.user.email), body: `<div class="receipt"><div class="receipt-rows"><div class="receipt-row"><span>Wallet balance</span><strong>${money(state.wallet?.balance)}</strong></div><div class="receipt-row"><span>Transactions</span><strong>${state.transactions.length}</strong></div><div class="receipt-row"><span>Account role</span><strong>${escapeHtml(state.profile?.role || 'user')}</strong></div></div></div><div class="modal-actions"><button class="button button-dark" type="button" data-action="fund-wallet">Add Funds <span>+</span></button><button class="button button-outline" type="button" data-action="logout">Log out</button></div>` });
 }
 
 function showHelp() {
-  openModal({ kicker: 'HELP CENTRE', title: 'A little help, close by', intro: 'Here are the answers people usually need first.', body: '<div class="empty-state"><strong>Payment still pending?</strong>Keep your reference. Do not pay again with a new reference. An admin can re-check the provider ledger and update the status.</div><div class="empty-state"><strong>Need a human?</strong>WhatsApp support is available from the More menu once the live contact is connected.</div><div class="modal-actions"><button class="button button-dark" type="button" data-action="support">Open WhatsApp support <span>↗</span></button></div>' });
+  const whatsapp = runtimeConfig.supportWhatsappUrl ? `<a class="button button-dark" href="${escapeHtml(runtimeConfig.supportWhatsappUrl)}" target="_blank" rel="noreferrer">WhatsApp support ↗</a>` : '<span class="notice">WhatsApp support link is not configured yet.</span>';
+  openModal({ kicker: 'HELP CENTRE', title: 'How can we help?', intro: `Email ${supportEmail} for support.`, body: `<div class="admin-list"><div class="notice"><strong>Pending order</strong><br />Keep the original reference. Do not pay again with a new reference.</div><div class="notice"><strong>Failed purchase</strong><br />Wallet purchases are returned automatically when the failure is clear. Guest refunds are reviewed by support.</div><div class="notice"><strong>Wallet funding</strong><br />Funding is credited only after Flutterwave verification.</div></div><div class="modal-actions"><a class="button button-outline" href="mailto:${supportEmail}">Email support ↗</a>${whatsapp}</div>` });
 }
 
-function showMore() {
-  openModal({ kicker: 'MORE', title: 'Make pudata yours', intro: 'A few useful things, all in one place.', body: '<div class="drawer-links" style="margin-top:18px"><button type="button" data-action="referrals"><span>✦</span> Referral & rewards</button><button type="button" data-action="admin"><span>⌁</span> Admin console</button><button type="button" data-action="announcements"><span>!</span> Announcements</button></div>' });
+function showHistory() {
+  openModal({ kicker: 'HISTORY', title: 'Your transactions', intro: state.user ? 'Live records from your account.' : 'Log in to see your account history.', body: state.user ? (state.transactions.length ? `<div class="transaction-list">${state.transactions.map(transactionRow).join('')}</div>` : '<div class="empty-state"><strong>No transactions yet</strong>Your payment activity will appear here.</div>') : '<div class="empty-state"><strong>No transactions yet</strong><button class="button button-dark" type="button" data-action="login">Log in</button></div>' });
 }
 
-function showAdmin() {
-  openModal({ kicker: 'ADMIN CONSOLE', title: 'Operations at a glance', intro: 'Role-protected admin surfaces are ready for Supabase Auth + RLS wiring.', body: '<div class="receipt"><div class="receipt-top"><span class="receipt-status"><span class="status-dot"></span> Demo overview</span><span class="receipt-ref">admin-only</span></div><div class="receipt-rows"><div class="receipt-row"><span>Total users</span><strong>248</strong></div><div class="receipt-row"><span>Sales this month</span><strong>₦1,248,500</strong></div><div class="receipt-row"><span>Pending review</span><strong>3 transactions</strong></div><div class="receipt-row"><span>Catalogue</span><strong>Last refreshed today</strong></div></div></div><div class="modal-actions"><button class="button button-dark" type="button" data-action="refresh-catalogue">Refresh catalogue <span>↻</span></button></div><div class="modal-quiet">In production, admin access is verified server-side from profiles.role or user_roles. Client-side flags never grant access.</div>' });
+function productOptions(type) {
+  const products = serviceProducts(type);
+  return products.map((product) => `<option value="${escapeHtml(product.id)}" data-price="${Number(product.selling_price)}">${escapeHtml(product.name)} · ${money(product.selling_price)}</option>`).join('');
+}
+function showPurchase(kind) {
+  const card = serviceCards.find((item) => item.kind === kind);
+  const products = serviceProducts(card.type);
+  if (!products.length || kind === 'electricity') return showToast('This service is coming soon.');
+  const isAirtime = kind === 'airtime';
+  const isData = kind === 'data';
+  const isTv = kind === 'tv';
+  const isPins = ['education', 'data_card', 'recharge_card'].includes(kind);
+  const productField = `<div class="field"><label for="product">Product</label><select id="product">${productOptions(card.type)}</select></div>`;
+  const phone = isAirtime || isData ? '<div class="field"><label for="phone">Phone number</label><input id="phone" inputmode="tel" required /></div>' : '';
+  const amount = isAirtime ? '<div class="field"><label for="amount">Amount</label><input id="amount" type="number" min="50" step="50" value="100" required /></div>' : '';
+  const smartcard = isTv ? '<div class="field"><label for="smart-card">Smartcard number</label><input id="smart-card" inputmode="numeric" required /></div>' : '';
+  const quantity = isPins ? '<div class="field"><label for="quantity">Quantity</label><select id="quantity"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>10</option></select></div>' : '';
+  const email = !state.user ? '<div class="field"><label for="email">Receipt email</label><input id="email" type="email" required /></div>' : '';
+  openModal({ kicker: 'CHECKOUT', title: card.title, intro: state.user ? 'Pay from your live wallet.' : 'Pay with Flutterwave and receive a receipt reference.', body: `<form class="modal-form" id="purchase-form" data-kind="${kind}" data-type="${card.type}">${productField}${phone}${amount}${smartcard}${quantity}${email}<div class="modal-actions"><button class="button button-dark" type="submit">${state.user ? 'Pay from wallet' : 'Continue to payment'} <span>↗</span></button></div></form>` });
 }
 
-function handleAction(action, target) {
-  if (action === 'menu') openDrawer();
-  if (action === 'close-menu') closeDrawer();
-  if (action === 'close-modal') closeModal();
-  if (action === 'home') { closeDrawer(); closeModal(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
-  if (action === 'profile') showProfile();
-  if (action === 'browse-services' || action === 'all-services') $('#services').scrollIntoView({ behavior: 'smooth' });
-  if (action === 'service') showPurchase(target.dataset.service);
-  if (action === 'fund-wallet') showFundWallet();
-  if (action === 'help') { closeDrawer(); showHelp(); }
-  if (action === 'more') showMore();
-  if (action === 'transactions') { closeDrawer(); showTransactions(); }
-  if (action === 'referrals') { closeModal(); showToast('Referral rewards will appear here once your account is connected.'); }
-  if (action === 'announcements') { closeModal(); showToast('No new announcements right now.'); }
-  if (action === 'support') showToast('WhatsApp support is ready for your live contact link.');
-  if (action === 'retry-guest-purchase') {
-    const raw = localStorage.getItem('pudata_pending_guest_purchase');
-    if (!raw) return;
-    const pending = JSON.parse(raw);
-    closeModal();
-    launchFlutterwave({ amount: pending.amount, txRef: pending.tx_ref, email: pending.email, onSuccess: async (response) => {
-      if (response?.status !== 'successful' && response?.status !== 'completed') return;
-      try { await completeGuestPurchase(pending); } catch { showToast(`Fulfilment needs another retry with ${pending.tx_ref}.`); }
-    } });
-  }
-  if (action === 'admin') showAdmin();
-  if (action === 'refresh-catalogue') { closeModal(); showToast('Catalogue refresh queued for the secure Edge Function.'); }
-  if (action === 'how-it-works') showToast('Choose a service, confirm your details, then keep the reference.');
-  if (action === 'logout') { if (supabaseClient) supabaseClient.auth.signOut(); state.loggedIn = false; state.user = null; state.session = null; state.wallet = 0; updateProfile(); closeModal(); showToast('You’re signed out.'); }
+function walletFundingRef() {
+  if (!state.user?.id) throw new Error('Log in to fund your wallet.');
+  return `FUND_${state.user.id}_${randomPart()}`;
 }
-
-function updateProfile() {
-  $('[data-profile-label]').textContent = state.loggedIn ? (state.user?.email?.split('@')[0] || 'Member') : 'Guest';
-  $('[data-wallet-balance]').textContent = state.loggedIn ? `₦${state.wallet.toLocaleString('en-NG', { minimumFractionDigits: 2 })}` : '₦0.00';
-  $('[data-wallet-copy]').textContent = state.loggedIn ? 'Your wallet is ready for fast, repeat payments.' : 'Sign in to fund once and pay faster next time.';
+function launchFlutterwave({ amount, txRef, email, onSuccess }) {
+  if (!window.FlutterwaveCheckout || !runtimeConfig.flutterwavePublicKey) return showToast('Flutterwave checkout is not configured.');
+  window.FlutterwaveCheckout({ public_key: runtimeConfig.flutterwavePublicKey, tx_ref: txRef, amount, currency: 'NGN', payment_options: 'card,banktransfer,ussd', customer: { email }, customizations: { title: 'pudata', description: 'Payment' }, callback: onSuccess, onclose: () => showToast('Checkout closed. You can retry with the same reference.') });
 }
-
-function purchasePayload(kind) {
-  const parameters = {};
-  if (kind === 'airtime') {
-    parameters.phone_number = $('#phone')?.value.trim();
-    parameters.amount = Number($('#amount')?.value || 0);
-  } else if (kind === 'data') {
-    parameters.phone_number = $('#phone')?.value.trim();
-  } else if (kind === 'tv') {
-    parameters.smart_card_number = $('#customer-id')?.value.trim();
-  } else if (kind === 'education' || kind === 'pins') {
-    parameters.quantity = Number($('#quantity')?.value || 1);
-  }
-  return parameters;
-}
-
-function purchaseAmount(kind) {
-  if (kind === 'airtime') return Number($('#amount')?.value || 0);
-  if (kind === 'data') return 1000;
-  if (kind === 'tv') return 15700;
-  return 2500;
+function showFundWallet() {
+  if (!state.user) return showAuth();
+  openModal({ kicker: 'WALLET', title: 'Add Funds', intro: 'Your wallet is credited only after server-side verification.', body: '<form class="modal-form" id="fund-form"><div class="field"><label for="fund-amount">Amount</label><select id="fund-amount"><option value="1000">₦1,000</option><option value="2500">₦2,500</option><option value="5000">₦5,000</option><option value="10000">₦10,000</option></select></div><div class="modal-actions"><button class="button button-dark" type="submit">Continue to payment <span>↗</span></button></div><p class="modal-quiet">Flutterwave verifies the amount, currency, status, and FUND reference before the balance changes.</p></form>' });
 }
 
 async function completeGuestPurchase(pending) {
-  const result = await invokeFunction('create-purchase', {
-    product_id: pending.product_id,
-    email: pending.email,
-    payment_tx_ref: pending.tx_ref,
-    parameters: pending.parameters
-  });
+  const result = await invokeFunction('create-purchase', { product_id: pending.product_id, email: pending.email, payment_tx_ref: pending.tx_ref, parameters: pending.parameters });
   localStorage.removeItem('pudata_pending_guest_purchase');
-  const selected = services.find((service) => service.kind === pending.kind);
-  state.txCount += 1;
-  showReceipt({ service: selected?.title || 'Service', amount: pending.amount, email: pending.email, status: result.status || 'pending', reference: result.reference || pending.tx_ref, pin: result.details?.pins ? JSON.stringify(result.details.pins) : null });
+  openModal({ kicker: 'RECEIPT', title: result.status === 'pending' ? 'Payment pending' : 'Payment complete', intro: 'Keep this reference for support or receipt lookup.', body: `<div class="receipt"><div class="receipt-rows"><div class="receipt-row"><span>Reference</span><strong>${escapeHtml(result.reference || pending.tx_ref)}</strong></div><div class="receipt-row"><span>Status</span><strong>${escapeHtml(result.status || 'pending')}</strong></div><div class="receipt-row"><span>Amount</span><strong>${money(pending.amount)}</strong></div></div></div>` });
 }
-
-async function retryPendingGuestPurchase() {
+function retryPendingGuestPurchase() {
   const raw = localStorage.getItem('pudata_pending_guest_purchase');
-  if (!raw || state.loggedIn) return;
+  if (!raw || state.user) return;
   try {
     const pending = JSON.parse(raw);
-    if (pending?.tx_ref) openModal({ kicker: 'PAYMENT RETRY', title: 'Finish your guest payment', intro: 'Your original payment reference is saved. Retry with the same tx_ref; pudata will not create a second payment reference.', body: `<div class="receipt"><div class="receipt-row"><span>Transaction reference</span><strong>${escapeHtml(pending.tx_ref)}</strong></div><div class="receipt-row"><span>Amount</span><strong>₦${Number(pending.amount).toLocaleString('en-NG')}</strong></div></div><div class="modal-actions"><button class="button button-dark" type="button" data-action="retry-guest-purchase">Retry checkout <span>↗</span></button></div>` });
-  } catch {
-    localStorage.removeItem('pudata_pending_guest_purchase');
+    openModal({ kicker: 'PAYMENT RETRY', title: 'Finish your guest payment', intro: 'Retry with the same transaction reference.', body: `<div class="receipt"><div class="receipt-row"><span>Reference</span><strong>${escapeHtml(pending.tx_ref)}</strong></div><div class="receipt-row"><span>Amount</span><strong>${money(pending.amount)}</strong></div></div><div class="modal-actions"><button class="button button-dark" type="button" data-action="retry-guest">Retry checkout <span>↗</span></button></div>` });
+  } catch { localStorage.removeItem('pudata_pending_guest_purchase'); }
+}
+
+async function loadAdminData() {
+  if (!supabaseClient || !state.isAdmin) return;
+  state.admin.loading = true;
+  state.admin.error = '';
+  render();
+  const [users, transactions, statsTransactions, pricing, announcements, support, userCount] = await Promise.all([
+    supabaseClient.from('profiles').select('id,email,full_name,role,suspended,created_at').order('created_at', { ascending: false }).limit(100),
+    supabaseClient.from('transactions').select('id,client_reference,user_id,guest_email,service_type,status,amount,margin_amount,pulseflow_ref,created_at,failure_reason').order('created_at', { ascending: false }).limit(200),
+    fetchAllRows('transactions', 'amount,margin_amount,status'),
+    supabaseClient.from('pricing_rules').select('id,scope,service_id,category_id,product_id,margin_type,margin_value,active').order('created_at', { ascending: false }),
+    supabaseClient.from('announcements').select('id,title,body,active,published_at').order('published_at', { ascending: false }).limit(50),
+    supabaseClient.from('support_settings').select('whatsapp_url,support_email,updated_at').eq('id', true).maybeSingle(),
+    supabaseClient.from('profiles').select('id', { count: 'exact', head: true })
+  ]);
+  state.admin.users = users.data || [];
+  state.admin.transactions = transactions.data || [];
+  state.admin.statsTransactions = statsTransactions.data || [];
+  state.admin.pricing = pricing.data || [];
+  state.admin.announcements = announcements.data || [];
+  state.admin.support = support.data || null;
+  state.admin.userCount = userCount.count || 0;
+  state.admin.error = users.error?.message || transactions.error?.message || statsTransactions.error?.message || pricing.error?.message || announcements.error?.message || support.error?.message || userCount.error?.message || '';
+  state.admin.loading = false;
+  render();
+}
+
+async function fetchAllRows(table, columns) {
+  const rows = [];
+  for (let start = 0; ; start += 1000) {
+    const result = await supabaseClient.from(table).select(columns).range(start, start + 999);
+    if (result.error) return { data: rows, error: result.error };
+    rows.push(...(result.data || []));
+    if (!result.data || result.data.length < 1000) return { data: rows, error: null };
+  }
+}
+function renderAdmin() {
+  if (!state.isAdmin) return renderDashboard();
+  if (state.admin.loading) return '<section class="dashboard-head"><h1>Admin</h1><p>Loading live records…</p></section><div class="empty-state">Loading live data.</div>';
+  const txs = state.admin.transactions.filter((t) => (!state.admin.statusFilter || t.status === state.admin.statusFilter) && (!state.admin.referenceFilter || `${t.client_reference} ${t.pulseflow_ref || ''}`.toLowerCase().includes(state.admin.referenceFilter.toLowerCase())));
+  const attention = state.admin.transactions.filter((t) => ['pending', 'failed', 'reversed', 'refund_pending'].includes(t.status));
+  const allTxs = state.admin.statsTransactions;
+  const sales = allTxs.filter((t) => t.status === 'success').reduce((sum, t) => sum + Number(t.amount || 0), 0);
+  const profit = allTxs.filter((t) => t.status === 'success').reduce((sum, t) => sum + Number(t.margin_amount || 0), 0);
+  const pending = allTxs.filter((t) => t.status === 'pending').length;
+  const failed = allTxs.filter((t) => ['failed', 'reversed', 'refund_pending'].includes(t.status)).length;
+  const error = state.admin.error ? `<div class="notice">${escapeHtml(state.admin.error)}</div>` : '';
+  const users = state.admin.users.length ? `<div class="admin-card"><table class="admin-table"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th></tr></thead><tbody>${state.admin.users.map((u) => `<tr><td>${escapeHtml(u.full_name || '—')}</td><td>${escapeHtml(u.email)}</td><td>${escapeHtml(u.role)}</td><td>${u.suspended ? 'Suspended' : 'Active'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state"><strong>No users found</strong></div>';
+  const transactions = txs.length ? `<div class="admin-card"><table class="admin-table"><thead><tr><th>Reference</th><th>Service</th><th>Amount</th><th>Status</th><th>PulseFlow</th><th>Actions</th></tr></thead><tbody>${txs.map((t) => `<tr><td>${escapeHtml(t.client_reference)}</td><td>${escapeHtml(t.service_type)}</td><td>${money(t.amount)}</td><td>${escapeHtml(t.status)}</td><td>${escapeHtml(t.pulseflow_ref || '—')}</td><td><button class="text-button" data-admin-action="recheck" data-reference="${escapeHtml(t.client_reference)}">Re-check</button>${['pending', 'failed', 'reversed', 'refund_pending'].includes(t.status) ? `<button class="text-button" data-admin-action="mark-failed" data-id="${t.id}">Mark failed</button><button class="text-button" data-admin-action="refund" data-reference="${escapeHtml(t.client_reference)}">Refund</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state"><strong>No transactions found</strong></div>';
+  const pricing = state.admin.pricing.length ? `<div class="admin-card"><table class="admin-table"><thead><tr><th>Scope</th><th>Target</th><th>Margin</th><th>Status</th></tr></thead><tbody>${state.admin.pricing.map((r) => `<tr><td>${escapeHtml(r.scope)}</td><td>${escapeHtml(r.product_id || r.category_id || r.service_id || '—')}</td><td>${escapeHtml(r.margin_type)} ${escapeHtml(r.margin_value)}</td><td>${r.active ? 'Active' : 'Inactive'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state"><strong>No pricing rules found</strong></div>';
+  const announcements = state.admin.announcements.length ? `<div class="admin-list">${state.admin.announcements.map((a) => `<div class="notice"><strong>${escapeHtml(a.title)}</strong><br />${escapeHtml(a.body)}</div>`).join('')}</div>` : '<div class="empty-state"><strong>No announcements found</strong></div>';
+  const support = state.admin.support || {};
+  return `<section class="dashboard-head"><div class="date-line">Operations</div><h1>Admin</h1><p>Live records and controls for pudata.</p></section>${error}<section class="section"><div class="admin-grid"><div class="metric"><span>Total users</span><strong>${state.admin.userCount}</strong></div><div class="metric"><span>Total sales</span><strong>${money(sales)}</strong></div><div class="metric"><span>Total profit</span><strong>${money(profit)}</strong></div><div class="metric"><span>Pending / failed</span><strong>${pending} / ${failed}</strong></div></div></section><section class="section"><div class="section-heading"><div><h2>Users</h2><p>Live profile records.</p></div></div>${users}</section><section class="section"><div class="section-heading"><div><h2>Transactions</h2><p>Latest live transaction records.</p></div></div><div class="admin-toolbar"><select class="admin-filter" id="admin-status-filter" aria-label="Filter transactions by status"><option value="">All statuses</option><option value="pending" ${state.admin.statusFilter === 'pending' ? 'selected' : ''}>Pending</option><option value="success" ${state.admin.statusFilter === 'success' ? 'selected' : ''}>Success</option><option value="failed" ${state.admin.statusFilter === 'failed' ? 'selected' : ''}>Failed</option></select><input class="admin-filter" id="admin-reference-filter" value="${escapeHtml(state.admin.referenceFilter)}" aria-label="Filter by reference or PulseFlow reference" /></div>${transactions}</section><section class="section"><div class="section-heading"><div><h2>Pending / Failed</h2><p>Transactions needing an operational decision.</p></div></div>${attention.length ? `<div class="transaction-list">${attention.map((t) => `<div class="transaction-row"><div><strong>${escapeHtml(t.client_reference)}</strong><span>${escapeHtml(t.service_type)} · ${escapeHtml(t.status)}</span></div><div><button class="text-button" data-admin-action="recheck" data-reference="${escapeHtml(t.client_reference)}">Re-check</button><button class="text-button" data-admin-action="refund" data-reference="${escapeHtml(t.client_reference)}">Refund</button></div></div>`).join('')}</div>` : '<div class="empty-state"><strong>No pending or failed transactions</strong></div>'}</section><section class="section"><div class="section-heading"><div><h2>Pricing</h2><p>Margins from live pricing rules.</p></div></div>${pricing}<div class="admin-toolbar"><button class="button button-dark" data-admin-action="refresh-catalogue">Refresh catalogue</button></div></section><section class="section"><div class="section-heading"><div><h2>Announcements</h2><p>Published notices from Supabase.</p></div></div>${announcements}</section><section class="section"><div class="section-heading"><div><h2>Support settings</h2><p>Customer support contact.</p></div></div><div class="notice">${escapeHtml(support.support_email || supportEmail)}${support.whatsapp_url ? ` · <a href="${escapeHtml(support.whatsapp_url)}" target="_blank" rel="noreferrer">WhatsApp</a>` : ''}</div></section>`;
+}
+async function handleAdminAction(target) {
+  const action = target.dataset.adminAction;
+  try {
+    if (action === 'recheck') await invokeFunction('recheck-transaction', { reference: target.dataset.reference });
+    if (action === 'refund') await invokeFunction('admin-refund', { reference: target.dataset.reference, reason: 'Admin-approved refund' });
+    if (action === 'mark-failed') {
+      const { error } = await supabaseClient.from('transactions').update({ status: 'failed', failure_reason: 'Marked failed by admin' }).eq('id', target.dataset.id);
+      if (error) throw error;
+    }
+    if (action === 'refresh-catalogue') {
+      const result = await invokeFunction('refresh-catalogue', {});
+      showToast(`Catalogue refreshed: ${result.services || 0} services, ${result.categories || 0} categories, ${result.products || 0} products.`);
+      await loadCatalogue();
+    }
+    await loadAdminData();
+  } catch (error) {
+    showToast(error.message || 'The admin action failed.');
+  }
+}
+
+function navigate(path) {
+  closeDrawer();
+  closeModal();
+  window.history.pushState({}, '', path);
+  state.route = path;
+  render();
+  if (path === '/admin') loadAdminData();
+}
+
+function purchaseParameters(form, kind) {
+  if (kind === 'airtime') return { phone_number: $('#phone', form).value.trim(), amount: Number($('#amount', form).value) };
+  if (kind === 'data') return { phone_number: $('#phone', form).value.trim() };
+  if (kind === 'tv') return { smart_card_number: $('#smart-card', form).value.trim() };
+  return { quantity: Number($('#quantity', form).value) };
+}
+
+async function handleSubmit(form) {
+  if (form.id === 'auth-form') {
+    const email = $('#auth-email').value.trim();
+    const password = $('#auth-password').value;
+    const signup = form.dataset.mode === 'signup';
+    const result = signup ? await supabaseClient.auth.signUp({ email, password, options: { data: { full_name: $('#auth-name').value.trim() } } }) : await supabaseClient.auth.signInWithPassword({ email, password });
+    if (result.error) throw result.error;
+    await syncSession();
+    closeModal();
+    showToast(signup ? 'Account created. Check your email if confirmation is enabled.' : 'You are signed in.');
+  }
+  if (form.id === 'fund-form') {
+    const amount = Number($('#fund-amount').value);
+    const txRef = walletFundingRef();
+    closeModal();
+    launchFlutterwave({ amount, txRef, email: state.user.email, onSuccess: async (response) => {
+      if (!['successful', 'completed'].includes(response?.status)) return showToast('Flutterwave did not confirm this payment.');
+      try {
+        const result = await invokeFunction('flutterwave-verify', { tx_ref: txRef, expected_amount: amount, purpose: 'wallet_funding' });
+        if (!result.verified || !result.credited) throw new Error('Payment was not verified. The wallet was not changed.');
+        await loadUserData();
+        render();
+        showToast('Wallet balance refreshed.');
+      } catch (error) { showToast(error.message); }
+    } });
+  }
+  if (form.id === 'purchase-form') {
+    const kind = form.dataset.kind;
+    const type = form.dataset.type;
+    const product = state.products.find((item) => item.id === $('#product', form).value);
+    const parameters = purchaseParameters(form, kind);
+    const amount = kind === 'airtime' ? parameters.amount : Number(product?.selling_price || 0);
+    if (kind === 'airtime' && amount < 50) throw new Error('Airtime amount must be at least ₦50.');
+    if (!product) throw new Error('Choose an available catalogue product.');
+    if (state.user) {
+      const result = await invokeFunction('create-purchase', { product_id: product.id, parameters });
+      await loadUserData();
+      render();
+      closeModal();
+      openModal({ kicker: 'RECEIPT', title: result.status === 'pending' ? 'Payment pending' : 'Payment complete', intro: 'Keep this reference for support.', body: `<div class="receipt"><div class="receipt-row"><span>Reference</span><strong>${escapeHtml(result.reference || '—')}</strong></div><div class="receipt-row"><span>Status</span><strong>${escapeHtml(result.status || 'pending')}</strong></div></div>` });
+      return;
+    }
+    const email = $('#email', form).value.trim();
+    const pending = { product_id: product.id, kind, type, amount, email, parameters, tx_ref: `PUD_${new Date().getFullYear()}_${randomPart()}` };
+    localStorage.setItem('pudata_pending_guest_purchase', JSON.stringify(pending));
+    closeModal();
+    launchFlutterwave({ amount, txRef: pending.tx_ref, email, onSuccess: async (response) => {
+      if (!['successful', 'completed'].includes(response?.status)) return showToast('Flutterwave did not confirm this payment.');
+      try { await completeGuestPurchase(pending); } catch { showToast(`Fulfilment needs a retry with ${pending.tx_ref}.`); }
+    } });
+  }
+}
+
+function handleAction(action, target) {
+  if (action === 'profile') showProfile();
+  if (action === 'login') showAuth('login');
+  if (action === 'signup') showAuth('signup');
+  if (action === 'logout') { supabaseClient?.auth.signOut(); state.user = null; state.profile = null; state.wallet = null; state.transactions = []; state.isAdmin = false; closeModal(); render(); showToast('You are signed out.'); }
+  if (action === 'fund-wallet') showFundWallet();
+  if (action === 'history') showHistory();
+  if (action === 'help') showHelp();
+  if (action === 'more') openDrawer();
+  if (action === 'close-menu') closeDrawer();
+  if (action === 'close-modal') closeModal();
+  if (action === 'toggle-services') { state.showAllServices = !state.showAllServices; render(); }
+  if (action === 'service') showPurchase(target.dataset.service);
+  if (action === 'refresh-wallet') loadUserData().then(render);
+  if (action === 'retry-guest') {
+    const pending = JSON.parse(localStorage.getItem('pudata_pending_guest_purchase') || 'null');
+    if (pending) { closeModal(); launchFlutterwave({ amount: pending.amount, txRef: pending.tx_ref, email: pending.email, onSuccess: async (response) => { if (['successful', 'completed'].includes(response?.status)) { try { await completeGuestPurchase(pending); } catch { showToast(`Fulfilment needs a retry with ${pending.tx_ref}.`); } } } }); }
   }
 }
 
 document.addEventListener('click', (event) => {
+  const routeTarget = event.target.closest('[data-route]');
+  if (routeTarget) { event.preventDefault(); navigate(routeTarget.dataset.route); return; }
+  const adminTarget = event.target.closest('[data-admin-action]');
+  if (adminTarget) { event.preventDefault(); handleAdminAction(adminTarget); return; }
   const actionTarget = event.target.closest('[data-action]');
   if (actionTarget) handleAction(actionTarget.dataset.action, actionTarget);
-  if (event.target.classList.contains('option')) {
-    $$('.option', event.target.parentElement).forEach((option) => option.classList.remove('selected'));
-    event.target.classList.add('selected');
+});
+document.addEventListener('submit', (event) => { event.preventDefault(); handleSubmit(event.target).catch((error) => showToast(error.message || 'Something went wrong.')); });
+document.addEventListener('change', (event) => {
+  if (event.target.id === 'admin-status-filter') {
+    state.admin.statusFilter = event.target.value;
+    render();
   }
 });
-
-document.addEventListener('submit', (event) => {
-  event.preventDefault();
-  const form = event.target;
-  if (form.id === 'login-form') {
-    if (!supabaseClient) {
-      showToast('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Manus.');
-      return;
-    }
-    supabaseClient.auth.signInWithPassword({ email: $('#login-email').value.trim(), password: $('#login-password').value }).then(async ({ error }) => {
-      if (error) { showToast(error.message); return; }
-      await syncSession();
-      closeModal();
-      showToast('Signed in. Wallet balance refreshed from the server.');
-    });
-  }
-  if (form.id === 'fund-form') {
-    const amount = Number($('#fund-amount').value);
-    let txRef;
-    try { txRef = walletFundingRef(); } catch (error) { showToast(error.message); return; }
-    const email = state.user.email;
-    closeModal();
-    launchFlutterwave({ amount, txRef, email, onSuccess: async (response) => {
-      if (response?.status !== 'successful' && response?.status !== 'completed') { showToast('Flutterwave did not confirm this payment.'); return; }
-      try {
-        const verified = await invokeFunction('flutterwave-verify', { tx_ref: txRef, expected_amount: amount, purpose: 'wallet_funding' });
-        if (!verified.verified) { showToast('Payment could not be verified. Your wallet was not changed.'); return; }
-        await refreshWallet();
-        showToast(`₦${amount.toLocaleString('en-NG')} added after server verification.`);
-      } catch (error) { showToast(`Verification failed: ${error.message}`); }
-      } });
-  }
-  if (form.id === 'purchase-form') {
-    const email = $('#email')?.value || 'guest@example.com';
-    const selected = services.find((service) => service.kind === state.selectedService);
-    const amount = purchaseAmount(state.selectedService);
-    if (state.selectedService === 'airtime' && amount < 50) {
-      showToast('Airtime minimum is ₦50.');
-      return;
-    }
-    const pending = { kind: state.selectedService, product_id: selected?.id || state.selectedService, amount, email, parameters: purchasePayload(state.selectedService), tx_ref: guestPaymentRef() };
-    if (state.loggedIn) {
-      invokeFunction('create-purchase', { product_id: pending.product_id, parameters: pending.parameters }).then((result) => {
-        state.txCount += 1;
-        showReceipt({ service: selected?.title || 'Service', amount, email: state.user.email, status: result.status || 'pending', reference: result.reference || 'PENDING', pin: result.details?.pins ? JSON.stringify(result.details.pins) : null });
-        refreshWallet();
-      }).catch((error) => showToast(`Purchase failed: ${error.message}`));
-      return;
-    }
-    localStorage.setItem('pudata_pending_guest_purchase', JSON.stringify(pending));
-    launchFlutterwave({ amount, txRef: pending.tx_ref, email, onSuccess: async (response) => {
-      if (response?.status !== 'successful' && response?.status !== 'completed') { showToast('Flutterwave did not confirm this payment.'); return; }
-      try {
-        await completeGuestPurchase(pending);
-      } catch (error) {
-        showToast(`Payment verified, but fulfilment needs a retry with ${pending.tx_ref}.`);
-      }
-      } });
-  }
-  if (form.id === 'lookup-form') {
-    invokeFunction('guest-receipt', { reference: $('#lookup-ref').value.trim(), email: $('#lookup-email').value.trim() }).then((receipt) => showReceipt({ service: receipt.service, amount: receipt.amount, email: $('#lookup-email').value.trim(), status: receipt.status, reference: receipt.reference, pin: receipt.pins ? JSON.stringify(receipt.pins) : null })).catch((error) => showToast(error.message));
+document.addEventListener('input', (event) => {
+  if (event.target.id === 'admin-reference-filter') {
+    state.admin.referenceFilter = event.target.value;
+    render();
+    const input = $('#admin-reference-filter');
+    if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
   }
 });
+window.addEventListener('popstate', () => { state.route = window.location.pathname; render(); if (state.route === '/admin') loadAdminData(); });
 
-renderServices();
-updateProfile();
-syncSession();
+syncSession().then(() => { if (state.route === '/admin' && state.isAdmin) loadAdminData(); });
