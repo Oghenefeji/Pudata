@@ -13,7 +13,7 @@
 - [x] Wallet references remain `FUND_<logged-in-user-UUID>_<random>`; the frontend never credits the wallet and passes the wallet credit amount separately for managed server verification.
 
 ## Services
-- [x] A service tile is active only when at least one active catalogue product of that type has selling_price greater than zero; otherwise it shows Coming soon.
+- [x] A service tile is active when at least one active catalogue product of that type exists. Data, TV, education, data-card, and recharge-card additionally require selling_price greater than zero; airtime and electricity do not because customers enter the amount.
 - [x] Airtime supports network, phone number, and an amount from ₦50.
 - [x] Data supports network, plan, and phone number.
 - [x] Cable supports provider, smart-card number verification through verify-customer, and plan.

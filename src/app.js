@@ -113,7 +113,9 @@ async function syncSession() {
   await retryPendingGuestPurchase();
 }
 
-function serviceProducts(type) { return state.products.filter((product) => product.product_type === type && product.active && Number(product.selling_price) > 0); }
+const FIXED_PRICE_TYPES = new Set(['data', 'tv', 'education', 'data_card', 'recharge_card']);
+function activeServiceProducts(type) { return state.products.filter((product) => product.product_type === type && product.active); }
+function serviceProducts(type) { return activeServiceProducts(type).filter((product) => !FIXED_PRICE_TYPES.has(type) || Number(product.selling_price) > 0); }
 function serviceIsAvailable(card) { return serviceProducts(card.type).length > 0; }
 function productNetwork(product, type) {
   const category = state.categories.find((item) => item.id === product.category_id);
@@ -214,7 +216,7 @@ function networkOptions(type, selected = '') {
   return [...new Set(serviceProducts(type).map((product) => productNetwork(product, type)))].sort().map((network) => `<option value="${escapeHtml(network)}" ${network === selected ? 'selected' : ''}>${escapeHtml(network)}</option>`).join('');
 }
 function productOptions(type, network = '') {
-  return serviceProducts(type).filter((product) => !network || productNetwork(product, type) === network).map((product) => `<option value="${escapeHtml(product.id)}" data-price="${Number(product.selling_price)}">${escapeHtml(product.name)} · ${money(product.selling_price)}</option>`).join('');
+  return serviceProducts(type).filter((product) => !network || productNetwork(product, type) === network).map((product) => `<option value="${escapeHtml(product.id)}" data-price="${Number(product.selling_price)}">${escapeHtml(product.name)}${FIXED_PRICE_TYPES.has(type) ? ` · ${money(product.selling_price)}` : ''}</option>`).join('');
 }
 function showPurchase(kind) {
   const card = serviceCards.find((item) => item.kind === kind);
