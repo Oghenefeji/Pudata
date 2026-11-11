@@ -1,38 +1,36 @@
 # pudata delivery checklist
 
 ## Dashboard and navigation
-- [ ] Visitors land on the dashboard without signing in.
-- [ ] Header includes pudata wordmark, menu control, and Login / Sign up when logged out.
-- [ ] Logged-in users see wallet balance and Add funds; guests see a clear invitation to fund after signing in.
-- [ ] Our Services is a three-column grid with the requested nine services, soft pastel tints, and real illustrations rather than plain icons.
-- [ ] A tile is active only when matching PulseFlow catalogue data exists; otherwise it shows Coming soon.
-- [ ] Bottom navigation exposes Home, Fund wallet, Help, and More.
-- [ ] No prepaid meter token banner is shown.
+- [x] Visitors land on the dashboard without signing in.
+- [x] Existing black-and-white dashboard design is preserved.
+- [x] Service icons use round tinted circles with bold dark phone, Wi-Fi, TV, lightning, and matching extra-service icons; labels remain bold.
+- [x] Electricity remains Coming soon.
 
-## Guest and member purchase experience
-- [ ] Guest purchase supports active airtime, data, TV, education-pin, and data/recharge-pin service paths with phone/card/email inputs as appropriate.
-- [ ] Guest checkout is designed for Flutterwave card, transfer, and USSD, with server-side verification by status, amount, currency, and tx_ref before PulseFlow purchase.
-- [ ] Webhook backup is idempotent and validates the Flutterwave secret hash.
-- [ ] Receipt includes a transaction reference and pin results where applicable; guest lookup requires reference plus email.
-- [ ] Member wallet funding and member purchases are represented as atomic server operations.
-- [ ] Pending transactions are shown as Processing and are not automatically refunded or retried with a new reference.
+## Wallet funding
+- [x] Wallet funding validates a minimum amount of ₦200.
+- [x] Funding presets are ₦500, ₦1,000, ₦2,000, and ₦5,000, with a custom amount field.
+- [x] Funding shows Amount + flat ₦20 fee = Total and charges the total in Flutterwave.
+- [x] Wallet references remain `FUND_<logged-in-user-UUID>_<random>`; the frontend never credits the wallet and passes the wallet credit amount separately for managed server verification.
 
-## Catalogue and provider rules
-- [ ] Services, categories, and products are cached in Supabase and exposed through an admin Refresh catalogue action.
-- [ ] TV and electricity verification use the documented verification endpoint before payment.
-- [ ] Electricity remains Coming soon until its product-specific purchase body is confirmed by the owner.
-- [ ] Every purchase uses a unique client reference and server-held PulseFlow PIN.
-- [ ] Clear PulseFlow failures are refund candidates; unclear/timeouts remain Pending.
+## Services
+- [x] A service tile is active only when at least one active catalogue product of that type has selling_price greater than zero; otherwise it shows Coming soon.
+- [x] Airtime supports network, phone number, and an amount from ₦50.
+- [x] Data supports network, plan, and phone number.
+- [x] Cable supports provider, smart-card number verification through verify-customer, and plan.
+- [x] Education and data/recharge card pins support quantity 1–5 or 10.
+- [x] Customer pages query selling prices only and never query product_costs.
 
-## Admin and security
-- [ ] Admin overview covers users, sales, profit, provider wallet balance when available, users, transactions, pricing, pending/failed operations, catalogue refresh, announcements, and WhatsApp support.
-- [ ] Admin access is role-based through profiles.role or user_roles, not client-side flags.
-- [ ] RLS applies to every table; users only read their own wallets and transactions.
-- [ ] Guest receipt lookup goes through an Edge Function that checks reference plus email.
-- [ ] Service role, provider API keys, transaction PIN, webhook secrets, and payment secrets remain in Edge Function secrets only.
+## Profile and sessions
+- [x] The profile page edits full name and phone number.
+- [x] Profile pictures accept JPG, PNG, and WEBP files up to 2MB and upload to `avatars/{userId}/avatar.<ext>`.
+- [x] Profile picture public URLs are saved to profiles.avatar_url and can be removed.
+- [x] The header avatar and greeting use the profile data.
+- [x] Log out is visible in More and in the admin header.
 
-## Handoff and operations
-- [ ] Complete environment-variable and secret list is in `docs/ENVIRONMENT.md`.
-- [ ] Fresh-project SQL with constraints, indexes, RLS, wallet functions, and signup profile trigger is in `docs/supabase-schema.sql`.
-- [ ] Edge Functions, deploy commands, webhook URL, and redirect guidance are in `docs/EDGE_FUNCTIONS.md`.
-- [ ] Test checklist covers guest airtime, wallet funding, data, TV verification, education pin, admin pricing, failed, and pending cases.
+## Admin price management
+- [x] Admin price management shows product name with service/network, admin-only PulseFlow cost from product_costs, selling price, profit, and Active toggle.
+- [x] Selling prices support inline Save, search, service/network filtering, and pagination.
+- [x] Zero or negative profit is shown in red.
+- [x] Apply margin supports percentage or fixed ₦ amount for filtered products.
+- [x] SYNC PULSEFLOW PRICES calls refresh-catalogue, reports result/error text, preserves selling prices, and refreshes cost/new-product data.
+- [x] The frontend does not modify supabase/functions or store PulseFlow credentials.

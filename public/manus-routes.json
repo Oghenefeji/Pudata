@@ -1,1 +1,1 @@
-{"routes":[{"path":"/","title":"pudata dashboard"},{"path":"/admin","title":"pudata admin"},{"path":"/terms","title":"Terms of Service"},{"path":"/privacy","title":"Privacy Policy"}]}
+{"routes":[{"path":"/","title":"pudata dashboard"},{"path":"/profile","title":"pudata profile"},{"path":"/admin","title":"pudata admin"},{"path":"/terms","title":"Terms of Service"},{"path":"/privacy","title":"Privacy Policy"}]}
