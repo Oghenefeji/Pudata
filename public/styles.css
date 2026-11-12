@@ -149,6 +149,7 @@ h1, h2, h3, .wallet-balance, .brand-name { font-family: Manrope, Arial, sans-ser
 .inline-price { display: flex; gap: 5px; align-items: center; min-width: 145px; }
 .admin-price-input { width: 100px; min-height: 35px; border: 1px solid var(--line); border-radius: 9px; padding: 7px; background: white; color: var(--ink); }
 .profit-negative { color: #c62828; font-weight: 800; }
+.cost-unavailable { color: #c62828; font-weight: 800; }
 .toggle { border: 1px solid var(--line); border-radius: 999px; min-width: 48px; padding: 5px 9px; background: white; color: var(--muted); font-size: 10px; font-weight: 800; }
 .toggle.on { background: var(--ink); color: white; border-color: var(--ink); }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 2px 0; color: var(--muted); font-size: 11px; }

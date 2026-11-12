@@ -311,6 +311,15 @@ async function fetchAllRows(table, columns) {
     if (!result.data || result.data.length < 1000) return { data: rows, error: null };
   }
 }
+async function fetchAllProductCosts() {
+  const rows = [];
+  for (let start = 0; ; start += 1000) {
+    const result = await supabaseClient.from('product_costs').select('product_id,pulseflow_cost').range(start, start + 999);
+    if (result.error) return { data: rows, error: result.error };
+    rows.push(...(result.data || []));
+    if (!result.data || result.data.length < 1000) return { data: rows, error: null };
+  }
+}
 async function loadAdminData() {
   if (!supabaseClient || !state.isAdmin) return;
   state.admin.loading = true; state.admin.error = ''; render();
@@ -322,17 +331,22 @@ async function loadAdminData() {
     supabaseClient.from('announcements').select('id,title,body,active,published_at').order('published_at', { ascending: false }).limit(50),
     supabaseClient.from('support_settings').select('whatsapp_url,support_email,updated_at').eq('id', true).maybeSingle(),
     supabaseClient.from('profiles').select('id', { count: 'exact', head: true }),
-    supabaseClient.from('catalogue_products').select('id,service_id,category_id,name,description,product_type,pulseflow_cost,selling_price,active,metadata').order('name'),
-    supabaseClient.from('product_costs').select('product_id,cost,updated_at')
+    supabaseClient.from('catalogue_products').select('id,service_id,category_id,name,description,product_type,selling_price,active,metadata').order('name'),
+    fetchAllProductCosts()
   ]);
   state.admin.users = users.data || []; state.admin.transactions = transactions.data || []; state.admin.statsTransactions = statsTransactions.data || [];
   state.admin.pricing = pricing.data || []; state.admin.announcements = announcements.data || []; state.admin.support = support.data || null;
   state.admin.userCount = userCount.count || 0; state.admin.products = adminProducts.data || [];
-  state.admin.costs = Object.fromEntries((productCosts.data || []).map((row) => [row.product_id, Number(row.cost)]));
-  state.admin.error = users.error?.message || transactions.error?.message || statsTransactions.error?.message || pricing.error?.message || announcements.error?.message || support.error?.message || userCount.error?.message || adminProducts.error?.message || productCosts.error?.message || '';
+  state.admin.costs = Object.fromEntries((productCosts.data || []).map((row) => [String(row.product_id), row.pulseflow_cost === null || row.pulseflow_cost === undefined ? null : Number(row.pulseflow_cost)]));
+  const missingCosts = state.admin.products.filter((product) => !Object.prototype.hasOwnProperty.call(state.admin.costs, String(product.id))).length;
+  const productCostError = productCosts.error?.message ? `product_costs query failed: ${productCosts.error.message}` : !(productCosts.data || []).length ? 'product_costs query returned no rows.' : missingCosts ? `product_costs has no matching cost for ${missingCosts} catalogue product(s).` : '';
+  state.admin.error = users.error?.message || transactions.error?.message || statsTransactions.error?.message || pricing.error?.message || announcements.error?.message || support.error?.message || userCount.error?.message || adminProducts.error?.message || productCostError;
   state.admin.loading = false; render();
 }
-function adminCost(product) { return Number(state.admin.costs[product.id] ?? product.pulseflow_cost ?? 0); }
+function adminCost(product) {
+  const value = state.admin.costs[String(product.id)];
+  return Number.isFinite(value) ? value : null;
+}
 function adminProductLabel(product) { return `${product.name} · ${productNetwork(product, product.product_type)}`; }
 function renderAdminProducts() {
   const pageSize = 10;
@@ -340,7 +354,7 @@ function renderAdminProducts() {
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   state.admin.productPage = Math.min(state.admin.productPage, pageCount);
   const visible = filtered.slice((state.admin.productPage - 1) * pageSize, state.admin.productPage * pageSize);
-  const rows = visible.map((product) => { const cost = adminCost(product); const profit = Number(product.selling_price) - cost; return `<tr><td><strong>${escapeHtml(product.name)}</strong><span>${escapeHtml(productNetwork(product, product.product_type))} · ${escapeHtml(product.product_type)}</span></td><td>${money(cost)}</td><td><div class="inline-price"><input class="admin-price-input" type="number" min="0" step="0.01" value="${Number(product.selling_price).toFixed(2)}" data-price-id="${escapeHtml(product.id)}" /><button class="text-button" data-admin-action="save-price" data-id="${escapeHtml(product.id)}">Save</button></div></td><td class="${profit <= 0 ? 'profit-negative' : ''}">${money(profit)}</td><td><button class="toggle ${product.active ? 'on' : ''}" type="button" data-admin-action="toggle-product" data-id="${escapeHtml(product.id)}" aria-label="Toggle ${escapeHtml(product.name)}">${product.active ? 'On' : 'Off'}</button></td></tr>`; }).join('');
+  const rows = visible.map((product) => { const cost = adminCost(product); const profit = cost === null ? null : Number(product.selling_price) - cost; return `<tr><td><strong>${escapeHtml(product.name)}</strong><span>${escapeHtml(productNetwork(product, product.product_type))} · ${escapeHtml(product.product_type)}</span></td><td>${cost === null ? '<span class="cost-unavailable">Unavailable</span>' : money(cost)}</td><td><div class="inline-price"><input class="admin-price-input" type="number" min="0" step="0.01" value="${Number(product.selling_price).toFixed(2)}" data-price-id="${escapeHtml(product.id)}" /><button class="text-button" data-admin-action="save-price" data-id="${escapeHtml(product.id)}">Save</button></div></td><td class="${profit !== null && profit <= 0 ? 'profit-negative' : ''}">${profit === null ? '<span class="cost-unavailable">Unavailable</span>' : money(profit)}</td><td><button class="toggle ${product.active ? 'on' : ''}" type="button" data-admin-action="toggle-product" data-id="${escapeHtml(product.id)}" aria-label="Toggle ${escapeHtml(product.name)}">${product.active ? 'On' : 'Off'}</button></td></tr>`; }).join('');
   return `<div class="admin-toolbar price-toolbar"><input class="admin-filter" id="admin-product-search" value="${escapeHtml(state.admin.productSearch)}" aria-label="Search products" /><select class="admin-filter" id="admin-product-service" aria-label="Filter products by service or network"><option value="">All services and networks</option>${[...new Set(state.admin.products.flatMap((p) => [p.product_type, productNetwork(p, p.product_type)]))].sort().map((value) => `<option value="${escapeHtml(value)}" ${state.admin.productService === value ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}</select></div><div class="admin-card"><table class="admin-table price-table"><thead><tr><th>Product name<br /><span>Service / network</span></th><th>PulseFlow cost</th><th>My selling price</th><th>My profit</th><th>Active</th></tr></thead><tbody>${rows || '<tr><td colspan="5">No products match this filter.</td></tr>'}</tbody></table></div><div class="pagination"><button class="text-button" data-admin-action="product-page" data-page="${state.admin.productPage - 1}" ${state.admin.productPage <= 1 ? 'disabled' : ''}>← Previous</button><span>Page ${state.admin.productPage} of ${pageCount}</span><button class="text-button" data-admin-action="product-page" data-page="${state.admin.productPage + 1}" ${state.admin.productPage >= pageCount ? 'disabled' : ''}>Next →</button></div>`;
 }
 function renderAdmin() {
@@ -385,7 +399,7 @@ async function handleAdminAction(target) {
       if (!Number.isFinite(amount) || amount < 0) throw new Error('Enter a valid margin.');
       state.admin.marginType = type; state.admin.marginValue = String(amount);
       const products = state.admin.products.filter((product) => (!state.admin.productService || product.product_type === state.admin.productService || productNetwork(product, product.product_type) === state.admin.productService) && (!state.admin.productSearch || adminProductLabel(product).toLowerCase().includes(state.admin.productSearch.toLowerCase())));
-      for (const product of products) { const cost = adminCost(product); const price = type === 'percentage' ? cost * (1 + amount / 100) : cost + amount; const { error } = await supabaseClient.from('catalogue_products').update({ selling_price: Math.round(price * 100) / 100 }).eq('id', product.id); if (error) throw error; }
+      for (const product of products) { const cost = adminCost(product); if (cost === null) throw new Error(`No product_costs row matches ${product.name}.`); const price = type === 'percentage' ? cost * (1 + amount / 100) : cost + amount; const { error } = await supabaseClient.from('catalogue_products').update({ selling_price: Math.round(price * 100) / 100 }).eq('id', product.id); if (error) throw error; }
     }
     await loadAdminData();
   } catch (error) { showToast(error.message || 'The admin action failed.'); }
