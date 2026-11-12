@@ -23,6 +23,8 @@ const state = {
   categories: [],
   isAdmin: false,
   showAllServices: false,
+  dataValidity: 'Daily',
+  dataConfirmProductId: '',
   route: window.location.pathname || '/',
   admin: {
     loading: false, users: [], transactions: [], statsTransactions: [], pricing: [], announcements: [], support: null,
@@ -190,6 +192,8 @@ function render() {
   const content = $('#page-content');
   if (state.route === '/terms' || state.route === '/privacy') content.innerHTML = renderLegal(state.route.slice(1));
   else if (state.route === '/profile') content.innerHTML = renderProfile();
+  else if (state.route === '/airtime') content.innerHTML = renderAirtimePage();
+  else if (state.route === '/data') content.innerHTML = renderDataPage();
   else if (state.route === '/admin') content.innerHTML = state.isAdmin ? renderAdmin() : renderDashboard();
   else content.innerHTML = renderDashboard();
   updateChrome();
@@ -266,6 +270,37 @@ function showGuestReceiptLookup() {
   openModal({ kicker: 'RECEIPT LOOKUP', title: 'Find a guest receipt', intro: 'Use the original reference and the email used at checkout.', body: '<form class="modal-form" id="guest-receipt-form"><div class="field"><label for="receipt-reference">Reference</label><input id="receipt-reference" required /></div><div class="field"><label for="receipt-email">Receipt email</label><input id="receipt-email" type="email" required /></div><div class="modal-actions"><button class="button button-dark" type="submit">Find receipt <span>↗</span></button></div></form>' });
 }
 function showHistory() { openModal({ kicker: 'HISTORY', title: 'Your transactions', intro: state.user ? 'Live records from your account.' : 'Log in to see your account history.', body: state.user ? (state.transactions.length ? `<div class="transaction-list">${state.transactions.map(transactionRow).join('')}</div>` : '<div class="empty-state"><strong>No transactions yet</strong>Your payment activity will appear here.</div>') : '<div class="empty-state"><strong>No transactions yet</strong><button class="button button-dark" type="button" data-action="login">Log in</button><button class="button button-outline" type="button" data-action="guest-receipt-lookup">Look up guest receipt</button></div>' }); }
+
+const DATA_VALIDITY_TABS = ['Daily', 'Weekly', 'Monthly', 'Others'];
+function dataValidity(product) {
+  const value = String(metadataValue(product, ['valid_for', 'validity', 'validity_period']) || '').trim();
+  const lower = value.toLowerCase();
+  return lower.includes('day') && !lower.includes('week') && !lower.includes('month') ? 'Daily' : lower.includes('week') ? 'Weekly' : lower.includes('month') ? 'Monthly' : 'Others';
+}
+function dataValidityLabel(product) { return String(metadataValue(product, ['valid_for', 'validity', 'validity_period']) || dataValidity(product)); }
+function dataPlanSize(product) { return String(metadataValue(product, ['data_size', 'size', 'volume', 'allowance', 'plan_size']) || product.name); }
+function renderAirtimePage() {
+  const tiles = [100, 200, 300, 400, 500, 1000].map((amount) => `<button class="amount-tile" type="button" data-action="airtime-amount" data-amount="${amount}">₦${amount.toLocaleString('en-NG')}</button>`).join('');
+  return `<section class="service-page"><div class="service-page-top"><button class="back-button" type="button" data-route="/" aria-label="Back">←</button><h1>Airtime</h1><button class="text-button" type="button" data-action="history">History</button></div><form id="purchase-form" class="service-purchase-form" data-kind="airtime" data-type="airtime">${phoneNetworkField('airtime')}<input id="product" type="hidden" data-role="product" /><div class="field"><label>Choose amount</label><div class="amount-grid">${tiles}</div></div><div class="field"><label for="amount">Custom amount</label><div class="amount-input-wrap"><span>₦</span><input id="amount" type="number" min="50" step="1" inputmode="decimal" placeholder="Enter amount" required /></div><small class="field-help">Minimum ₦50.</small></div>${!state.user ? '<div class="field"><label for="email">Receipt email</label><input id="email" type="email" required /></div>' : ''}<button class="button button-dark service-pay-button" type="submit">Pay <span>↗</span></button></form></section>`;
+}
+function renderDataPage() {
+  const tabs = DATA_VALIDITY_TABS.map((tab) => `<button class="validity-tab ${state.dataValidity === tab ? 'active' : ''}" type="button" data-action="data-validity" data-validity="${tab}">${tab}</button>`).join('');
+  return `<section class="service-page"><div class="service-page-top"><button class="back-button" type="button" data-route="/" aria-label="Back">←</button><h1>Data</h1><button class="text-button" type="button" data-action="history">History</button></div><form id="purchase-form" class="service-purchase-form" data-kind="data" data-type="data">${phoneNetworkField('data')}<select id="product" data-role="product" hidden disabled></select><div class="validity-tabs">${tabs}</div><div id="data-plan-grid" class="data-plan-grid"><div class="plan-empty">Enter your phone number to see available plans.</div></div>${!state.user ? '<div class="field"><label for="email">Receipt email</label><input id="email" type="email" required /></div>' : ''}<button class="button button-dark service-pay-button sr-only" type="submit">Pay</button></form></section>`;
+}
+function renderDataPlans(form) {
+  const grid = $('#data-plan-grid', form);
+  if (!grid) return;
+  const network = $('#network', form)?.value;
+  if (!network) { grid.innerHTML = '<div class="plan-empty">Enter your phone number to see available plans.</div>'; return; }
+  const plans = serviceProducts('data').filter((product) => networkMatches(productNetwork(product, 'data'), network) && dataValidity(product) === state.dataValidity);
+  grid.innerHTML = plans.length ? plans.map((product) => `<button class="data-plan-card" type="button" data-action="data-plan" data-id="${escapeHtml(product.id)}"><strong>${escapeHtml(dataPlanSize(product))}</strong><span>${escapeHtml(dataValidityLabel(product))}</span><b>${money(product.selling_price)}</b></button>`).join('') : '<div class="plan-empty">No plans are available for this network and validity.</div>';
+}
+function showDataConfirm(productId) {
+  const form = $('#purchase-form'); const product = state.products.find((item) => item.id === productId); const network = $('#network', form)?.value; const phone = $('#phone', form)?.value.trim();
+  if (!product || !network || !phone) return showToast('Enter a valid phone number first.');
+  state.dataConfirmProductId = product.id;
+  openModal({ kicker: 'CONFIRM DATA', title: 'Review your plan', intro: 'Check these details before you pay.', body: `<div class="confirm-sheet"><div class="confirm-row"><span>Network</span><strong>${escapeHtml(network)}</strong></div><div class="confirm-row"><span>Number</span><strong>${escapeHtml(phone)}</strong></div><div class="confirm-row"><span>Plan</span><strong>${escapeHtml(dataPlanSize(product))} · ${escapeHtml(dataValidityLabel(product))}</strong></div><div class="confirm-row total"><span>Price</span><strong>${money(product.selling_price)}</strong></div></div><div class="modal-actions"><button class="button button-dark" type="button" data-action="confirm-data-plan">Pay ${money(product.selling_price)} <span>↗</span></button></div>` });
+}
 
 function networkOptions(type, selected = '', includePlaceholder = false) {
   const placeholder = includePlaceholder ? `<option value="">Detect network</option>` : '';
@@ -529,7 +564,12 @@ function handleAction(action, target) {
   if (action === 'logout') { supabaseClient?.auth.signOut(); state.user = null; state.profile = null; state.wallet = null; state.transactions = []; state.isAdmin = false; closeModal(); navigate('/'); showToast('You are signed out.'); }
   if (action === 'fund-wallet') showFundWallet(); if (action === 'history') showHistory(); if (action === 'help') showHelp(); if (action === 'more') openDrawer(); if (action === 'close-menu') closeDrawer(); if (action === 'close-modal') closeModal();
   if (action === 'toggle-services') { state.showAllServices = !state.showAllServices; render(); }
-  if (action === 'service') showPurchase(target.dataset.service); if (action === 'refresh-wallet') loadUserData().then(render);
+  if (action === 'service') { if (['airtime', 'data'].includes(target.dataset.service)) navigate(`/${target.dataset.service}`); else showPurchase(target.dataset.service); }
+  if (action === 'airtime-amount') { const input = $('#amount'); if (input) { input.value = target.dataset.amount; $$('.amount-tile').forEach((tile) => tile.classList.toggle('selected', tile === target)); } }
+  if (action === 'data-validity') { state.dataValidity = target.dataset.validity; $$('.validity-tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.validity === state.dataValidity)); renderDataPlans($('#purchase-form')); }
+  if (action === 'data-plan') showDataConfirm(target.dataset.id);
+  if (action === 'confirm-data-plan') { const form = $('#purchase-form'); const product = state.products.find((item) => item.id === state.dataConfirmProductId); if (!form || !product) return showToast('Choose a data plan first.'); const select = $('#product', form); select.value = product.id; closeModal(); form.requestSubmit(); }
+  if (action === 'refresh-wallet') loadUserData().then(render);
   if (action === 'guest-receipt-lookup') showGuestReceiptLookup();
   if (action === 'remove-avatar') removeAvatar().catch((error) => showToast(error.message));
   if (action === 'retry-guest') { const pending = JSON.parse(localStorage.getItem('pudata_pending_guest_purchase') || 'null'); if (pending) { closeModal(); launchFlutterwave({ amount: pending.amount, txRef: pending.tx_ref, email: pending.email, onSuccess: async (response) => { if (['successful', 'completed'].includes(response?.status)) { try { await completeGuestPurchase(pending); } catch { showToast(`Fulfilment needs a retry with ${pending.tx_ref}.`); } } } }); } }
@@ -551,7 +591,7 @@ document.addEventListener('submit', (event) => {
 });
 document.addEventListener('change', (event) => {
   if (event.target.id === 'fund-preset' || event.target.id === 'fund-custom') updateFundingSummary();
-  if (event.target.dataset.role === 'network') { const form = event.target.closest('#purchase-form'); updateNetworkSelection(form, event.target.value); form.dataset.customerVerified = 'false'; }
+  if (event.target.dataset.role === 'network') { const form = event.target.closest('#purchase-form'); updateNetworkSelection(form, event.target.value); if (form?.dataset.kind === 'data') renderDataPlans(form); form.dataset.customerVerified = 'false'; }
   if (event.target.id === 'admin-status-filter') { state.admin.statusFilter = event.target.value; render(); }
   if (event.target.id === 'admin-product-service') { state.admin.productService = event.target.value; state.admin.productPage = 1; render(); }
   if (event.target.id === 'margin-type') state.admin.marginType = event.target.value;
@@ -562,6 +602,7 @@ document.addEventListener('input', (event) => {
     const form = event.target.closest('#purchase-form');
     const detected = detectNetwork(event.target.value);
     if (form && detected) updateNetworkSelection(form, detected);
+    if (form?.dataset.kind === 'data') renderDataPlans(form);
     const help = form && $('#network-help', form);
     if (help && detected) help.textContent = `Detected ${detected}. Tap the logo to change it if your number was ported.`;
   }
