@@ -22,6 +22,10 @@
 - [x] Electricity is active when electricity products exist; customers choose distribution company and a Prepaid/Postpaid product, enter a meter number, verify it first, confirm the customer name, enter ₦500–₦100,000, and pay.
 - [x] Electricity calls create-purchase with only `parameters.meter_number` and `parameters.amount`.
 - [x] Successful electricity receipts render returned service details and copyable tokens; guests can retrieve them through guest-receipt using reference plus email.
+- [x] Airtime and data detect MTN, Airtel, Glo, and 9mobile from the typed phone prefix, show the matching catalogue category logo inside the phone field, and allow a manual carrier override for ported numbers.
+- [x] Airtime automatically selects the detected network's active VTU product; data shows only the detected network's plans.
+- [x] Payment buttons lock after the first tap until the request responds, preventing duplicate submissions.
+- [x] Receipts show success only for server status exactly `success`; pending payments show the do-not-pay-again message, use Supabase Realtime for logged-in users, and poll guest receipts every 10 seconds for up to 10 minutes.
 
 ## Profile and sessions
 - [x] The profile page edits full name and phone number.

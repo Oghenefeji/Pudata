@@ -49,6 +49,7 @@ const dateText = (value) => value ? new Date(value).toLocaleString('en-NG', { da
 const firstName = () => (state.profile?.full_name || state.user?.email?.split('@')[0] || '').trim().split(/\s+/)[0];
 const randomPart = () => crypto.randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
 const metadataValue = (product, keys) => keys.map((key) => product.metadata?.[key]).find(Boolean) || '';
+let activePaymentWatch = null;
 
 function showToast(message) {
   const toast = $('#toast');
@@ -66,6 +67,7 @@ function openModal({ kicker = 'PUDATA', title, intro = '', body }) {
   $('#modal-layer').setAttribute('aria-hidden', 'false');
 }
 function closeModal() {
+  stopPaymentWatch();
   $('#modal-layer').classList.remove('is-open');
   $('#modal-layer').setAttribute('aria-hidden', 'true');
 }
@@ -82,7 +84,7 @@ async function loadCatalogue() {
   if (!supabaseClient) return;
   const [products, categories] = await Promise.all([
     supabaseClient.from('catalogue_products').select('id,service_id,category_id,name,description,product_type,selling_price,active,metadata').order('name'),
-    supabaseClient.from('catalogue_categories').select('id,service_id,name,active').eq('active', true).order('name')
+    supabaseClient.from('catalogue_categories').select('id,service_id,name,logo,active').eq('active', true).order('name')
   ]);
   if (!products.error) state.products = products.data || [];
   if (!categories.error) state.categories = categories.data || [];
@@ -122,6 +124,19 @@ function productNetwork(product, type) {
   return metadataValue(product, type === 'tv' ? ['provider', 'network', 'operator'] : ['network', 'provider', 'operator', 'distribution_company', 'disco']) || category?.name || product.name.split(/\s+/)[0] || 'Other';
 }
 function productLabel(product, type) { return `${productNetwork(product, type)} · ${product.name}`; }
+const NETWORK_PREFIXES = {
+  MTN: ['0703', '0706', '0803', '0806', '0810', '0813', '0814', '0816', '0903', '0906', '0913', '0916', '0704'],
+  Airtel: ['0701', '0708', '0802', '0808', '0812', '0901', '0902', '0904', '0907', '0912'],
+  Glo: ['0705', '0805', '0807', '0811', '0815', '0905', '0915'],
+  '9mobile': ['0809', '0817', '0818', '0908', '0909']
+};
+function normalizePhone(value) { const digits = String(value || '').replace(/\D/g, ''); return digits.startsWith('234') ? `0${digits.slice(3)}` : digits; }
+function detectNetwork(value) { const prefix = normalizePhone(value).slice(0, 4); return Object.entries(NETWORK_PREFIXES).find(([, prefixes]) => prefixes.includes(prefix))?.[0] || ''; }
+function normalizeNetwork(value) { return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+function networkMatches(value, detected) { const actual = normalizeNetwork(value); const wanted = normalizeNetwork(detected); return actual === wanted || actual.includes(wanted) || wanted.includes(actual); }
+function networkChoices(type) { return [...new Set(serviceProducts(type).map((product) => productNetwork(product, type)))].sort(); }
+function networkCategory(network) { return state.categories.find((category) => networkMatches(category.name, network)); }
+function networkLogoMarkup(network) { const logo = networkCategory(network)?.logo; return logo ? `<img src="${escapeHtml(logo)}" alt="${escapeHtml(network)} logo" />` : `<span>${escapeHtml(String(network || '?').slice(0, 2).toUpperCase())}</span>`; }
 function iconSvg(icon) {
   const paths = {
     phone: '<path d="M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M10 18h4"/>',
@@ -204,28 +219,90 @@ function receiptDetailsMarkup(details) {
 }
 function renderReceiptResult(result, fallbackAmount = 0) {
   const details = result.details || result.pins || null;
-  return `<div class="receipt"><div class="receipt-rows"><div class="receipt-row"><span>Reference</span><strong>${escapeHtml(result.reference || '—')}</strong></div><div class="receipt-row"><span>Status</span><strong>${escapeHtml(result.status || 'pending')}</strong></div><div class="receipt-row"><span>Service</span><strong>${escapeHtml(result.service || '—')}</strong></div><div class="receipt-row"><span>Amount</span><strong>${money(result.amount || fallbackAmount)}</strong></div></div>${receiptDetailsMarkup(details)}<button class="button button-outline" type="button" data-action="guest-receipt-lookup">Look up another receipt</button></div>`;
+  const status = String(result.status || 'pending');
+  const service = serviceDisplayName(result.service || result.service_type || '—');
+  const pendingMessage = status === 'pending' ? '<div class="pending-message">Processing. Do not pay again. We\'ll update this screen.</div>' : '';
+  return `<div class="receipt">${pendingMessage}<div class="receipt-rows"><div class="receipt-row"><span>Reference</span><strong>${escapeHtml(result.reference || result.client_reference || '—')}</strong></div><div class="receipt-row"><span>Status</span><strong>${escapeHtml(status)}</strong></div><div class="receipt-row"><span>Service</span><strong>${escapeHtml(service)}</strong></div>${result.network ? `<div class="receipt-row"><span>Network</span><strong>${escapeHtml(result.network)}</strong></div>` : ''}${result.number ? `<div class="receipt-row"><span>Number</span><strong>${escapeHtml(result.number)}</strong></div>` : ''}<div class="receipt-row"><span>Amount</span><strong>${money(result.amount ?? fallbackAmount)}</strong></div></div>${receiptDetailsMarkup(details)}<button class="button button-outline" type="button" data-action="guest-receipt-lookup">Look up another receipt</button></div>`;
 }
-function showReceipt(result, fallbackAmount = 0) { openModal({ kicker: 'RECEIPT', title: result.status === 'pending' ? 'Payment pending' : 'Payment complete', intro: 'Keep this reference for support or receipt lookup.', body: renderReceiptResult(result, fallbackAmount) }); }
+function stopPaymentWatch() {
+  if (!activePaymentWatch) return;
+  if (activePaymentWatch.interval) clearInterval(activePaymentWatch.interval);
+  if (activePaymentWatch.channel && supabaseClient) supabaseClient.removeChannel(activePaymentWatch.channel);
+  activePaymentWatch = null;
+}
+function receiptStatusTitle(status) { return status === 'success' ? 'Success' : status === 'pending' ? 'Processing' : `Payment ${status || 'failed'}`; }
+function showReceipt(result, fallbackAmount = 0, context = {}) {
+  stopPaymentWatch();
+  const merged = { ...context, ...result, service: result.service || context.service, network: result.network || context.network, number: result.number || context.number };
+  openModal({ kicker: 'RECEIPT', title: receiptStatusTitle(merged.status), intro: merged.status === 'pending' ? '' : 'Keep this reference for support or receipt lookup.', body: renderReceiptResult(merged, fallbackAmount) });
+  if (merged.status === 'pending' && merged.reference) {
+    if (merged.guestEmail) startGuestPaymentWatch(merged.reference, merged.guestEmail, fallbackAmount, context);
+    else startRealtimePaymentWatch(merged.reference, fallbackAmount, context);
+  }
+}
+async function fetchGuestReceipt(reference, email) { return invokeFunction('guest-receipt', { reference, email }); }
+function startRealtimePaymentWatch(reference, fallbackAmount, context) {
+  if (!supabaseClient || !state.user) return;
+  const channel = supabaseClient.channel(`pudata-payment-${reference}`).on('postgres_changes', { event: '*', schema: 'public', table: 'transactions', filter: `client_reference=eq.${reference}` }, async (payload) => {
+    const row = payload.new || {};
+    const result = { ...row, reference: row.client_reference || reference, service: row.service_type, details: row.pin_payload };
+    showReceipt(result, fallbackAmount, context);
+  }).subscribe();
+  activePaymentWatch = { channel };
+}
+function startGuestPaymentWatch(reference, email, fallbackAmount, context) {
+  const startedAt = Date.now();
+  const poll = async () => {
+    if (Date.now() - startedAt >= 10 * 60 * 1000) return stopPaymentWatch();
+    try {
+      const result = await fetchGuestReceipt(reference, email);
+      if (result.status !== 'pending') showReceipt({ ...result, guestEmail: email }, fallbackAmount, context);
+    } catch { /* Keep the pending screen; the next ten-second poll can recover. */ }
+  };
+  const interval = setInterval(poll, 10000);
+  activePaymentWatch = { interval };
+}
 function showGuestReceiptLookup() {
   openModal({ kicker: 'RECEIPT LOOKUP', title: 'Find a guest receipt', intro: 'Use the original reference and the email used at checkout.', body: '<form class="modal-form" id="guest-receipt-form"><div class="field"><label for="receipt-reference">Reference</label><input id="receipt-reference" required /></div><div class="field"><label for="receipt-email">Receipt email</label><input id="receipt-email" type="email" required /></div><div class="modal-actions"><button class="button button-dark" type="submit">Find receipt <span>↗</span></button></div></form>' });
 }
 function showHistory() { openModal({ kicker: 'HISTORY', title: 'Your transactions', intro: state.user ? 'Live records from your account.' : 'Log in to see your account history.', body: state.user ? (state.transactions.length ? `<div class="transaction-list">${state.transactions.map(transactionRow).join('')}</div>` : '<div class="empty-state"><strong>No transactions yet</strong>Your payment activity will appear here.</div>') : '<div class="empty-state"><strong>No transactions yet</strong><button class="button button-dark" type="button" data-action="login">Log in</button><button class="button button-outline" type="button" data-action="guest-receipt-lookup">Look up guest receipt</button></div>' }); }
 
-function networkOptions(type, selected = '') {
-  return [...new Set(serviceProducts(type).map((product) => productNetwork(product, type)))].sort().map((network) => `<option value="${escapeHtml(network)}" ${network === selected ? 'selected' : ''}>${escapeHtml(network)}</option>`).join('');
+function networkOptions(type, selected = '', includePlaceholder = false) {
+  const placeholder = includePlaceholder ? `<option value="">Detect network</option>` : '';
+  return `${placeholder}${networkChoices(type).map((network) => `<option value="${escapeHtml(network)}" ${network === selected ? 'selected' : ''}>${escapeHtml(network)}</option>`).join('')}`;
 }
 function productOptions(type, network = '') {
   return serviceProducts(type).filter((product) => !network || productNetwork(product, type) === network).map((product) => `<option value="${escapeHtml(product.id)}" data-price="${Number(product.selling_price)}">${escapeHtml(product.name)}${FIXED_PRICE_TYPES.has(type) ? ` · ${money(product.selling_price)}` : ''}</option>`).join('');
+}
+function phoneNetworkField(type) {
+  return `<div class="field"><label for="phone">Phone number</label><div class="phone-network-field"><input id="phone" data-phone-input inputmode="tel" autocomplete="tel" required /><label class="network-picker" title="Tap to change network"><span id="network-logo" class="network-logo">?</span><select id="network" data-role="network" aria-label="Network">${networkOptions(type, '', true)}</select></label></div><small id="network-help" class="field-help">Your network is detected from the number. Tap the logo to change it if your number was ported.</small></div>`;
+}
+function updateNetworkSelection(form, network) {
+  const picker = $('#network', form);
+  if (!picker) return;
+  const option = [...picker.options].find((item) => networkMatches(item.value, network));
+  picker.value = option?.value || '';
+  const selectedNetwork = picker.value;
+  const logo = $('#network-logo', form);
+  if (logo) logo.innerHTML = selectedNetwork ? networkLogoMarkup(selectedNetwork) : '?';
+  const productSelect = $('#product', form);
+  const type = form.dataset.type;
+  const products = selectedNetwork ? serviceProducts(type).filter((product) => networkMatches(productNetwork(product, type), selectedNetwork)) : [];
+  if (form.dataset.kind === 'airtime') {
+    if (productSelect) productSelect.value = products[0]?.id || '';
+  } else if (productSelect) {
+    productSelect.innerHTML = products.length ? productOptions(type, selectedNetwork) : '<option value="">Enter a valid number to see plans</option>';
+    productSelect.disabled = !products.length;
+  }
 }
 function showPurchase(kind) {
   const card = serviceCards.find((item) => item.kind === kind);
   const products = serviceProducts(card.type);
   if (!products.length) return showToast('This service is coming soon.');
   const initialNetwork = productNetwork(products[0], card.type);
-  const networkField = ['airtime', 'data', 'tv', 'electricity'].includes(kind) ? `<div class="field"><label for="network">${kind === 'tv' ? 'Cable provider' : kind === 'electricity' ? 'Distribution company' : 'Network'}</label><select id="network" data-role="network">${networkOptions(card.type, initialNetwork)}</select></div>` : '';
-  const productField = `<div class="field"><label for="product">${kind === 'data' || kind === 'tv' ? 'Plan' : kind === 'electricity' ? 'Prepaid / Postpaid' : 'Product'}</label><select id="product" data-role="product" data-type="${card.type}">${productOptions(card.type, initialNetwork)}</select></div>`;
-  const phone = kind === 'airtime' || kind === 'data' ? '<div class="field"><label for="phone">Phone number</label><input id="phone" inputmode="tel" required /></div>' : '';
+  const networkField = ['tv', 'electricity'].includes(kind) ? `<div class="field"><label for="network">${kind === 'tv' ? 'Cable provider' : 'Distribution company'}</label><select id="network" data-role="network">${networkOptions(card.type, initialNetwork)}</select></div>` : '';
+  const productField = kind === 'airtime' ? '<input id="product" type="hidden" data-role="product" />' : kind === 'data' ? '<div class="field"><label for="product">Plan</label><select id="product" data-role="product" data-type="data" disabled><option value="">Enter a valid number to see plans</option></select></div>' : `<div class="field"><label for="product">${kind === 'tv' ? 'Plan' : kind === 'electricity' ? 'Prepaid / Postpaid' : 'Product'}</label><select id="product" data-role="product" data-type="${card.type}">${productOptions(card.type, initialNetwork)}</select></div>`;
+  const phone = kind === 'airtime' || kind === 'data' ? phoneNetworkField(card.type) : '';
   const amount = kind === 'airtime' ? '<div class="field"><label for="amount">Amount</label><input id="amount" type="number" min="50" step="50" value="100" required /></div>' : '';
   const smartcard = kind === 'tv' ? '<div class="field"><label for="smart-card">Smartcard number</label><input id="smart-card" inputmode="numeric" required /><div id="customer-check" class="field-help"></div></div>' : '';
   const meter = kind === 'electricity' ? '<div class="field"><label for="meter-number">Meter number</label><input id="meter-number" inputmode="numeric" required /><div id="customer-check" class="field-help"></div></div>' : '';
@@ -265,10 +342,20 @@ function purchaseParameters(form, kind) {
   if (kind === 'electricity') return { meter_number: $('#meter-number', form).value.trim(), amount: Number($('#electricity-amount', form).value) };
   return { quantity: Number($('#quantity', form).value) };
 }
+function serviceDisplayName(kind) { const value = String(kind || '—'); return ({ airtime: 'Airtime', data: 'Data', tv: 'Cable', electricity: 'Electricity', education: 'Education pins', data_card: 'Data card pins', recharge_card: 'Recharge card pins' })[value.toLowerCase()] || value; }
+function receiptContextFromForm(form, kind, product) {
+  return { service: serviceDisplayName(kind), network: $('#network', form)?.value || productNetwork(product, kind), number: ['airtime', 'data'].includes(kind) ? $('#phone', form).value.trim() : kind === 'tv' ? $('#smart-card', form).value.trim() : kind === 'electricity' ? $('#meter-number', form).value.trim() : '' };
+}
+function saveGuestReceiptContext(reference, context) {
+  try { const saved = JSON.parse(localStorage.getItem('pudata_guest_receipts') || '{}'); saved[reference] = context; localStorage.setItem('pudata_guest_receipts', JSON.stringify(saved)); } catch { /* Storage is optional. */ }
+}
+function savedGuestReceiptContext(reference) {
+  try { return JSON.parse(localStorage.getItem('pudata_guest_receipts') || '{}')[reference] || {}; } catch { return {}; }
+}
 async function completeGuestPurchase(pending) {
   const result = await invokeFunction('create-purchase', { product_id: pending.product_id, email: pending.email, payment_tx_ref: pending.tx_ref, parameters: pending.parameters });
   localStorage.removeItem('pudata_pending_guest_purchase');
-  showReceipt({ ...result, reference: result.reference || pending.tx_ref }, pending.amount);
+  showReceipt({ ...result, reference: result.reference || pending.tx_ref, guestEmail: pending.email }, pending.amount, pending.context || {});
 }
 function retryPendingGuestPurchase() {
   const raw = localStorage.getItem('pudata_pending_guest_purchase');
@@ -414,8 +501,9 @@ async function handleSubmit(form) {
   }
   if (form.id === 'profile-form') { await saveProfile(form); return; }
   if (form.id === 'guest-receipt-form') {
-    const result = await invokeFunction('guest-receipt', { reference: $('#receipt-reference', form).value.trim(), email: $('#receipt-email', form).value.trim() });
-    showReceipt(result, result.amount);
+    const reference = $('#receipt-reference', form).value.trim(); const email = $('#receipt-email', form).value.trim();
+    const result = await fetchGuestReceipt(reference, email);
+    showReceipt({ ...result, reference, guestEmail: email }, result.amount, savedGuestReceiptContext(reference));
     return;
   }
   if (form.id === 'fund-form') {
@@ -429,8 +517,9 @@ async function handleSubmit(form) {
     const parameters = purchaseParameters(form, kind); const amount = ['airtime', 'electricity'].includes(kind) ? parameters.amount : Number(product.selling_price);
     if (kind === 'airtime' && amount < 50) throw new Error('Airtime amount must be at least ₦50.');
     if (kind === 'electricity' && (parameters.amount < 500 || parameters.amount > 100000)) throw new Error('Electricity amount must be between ₦500 and ₦100,000.');
-    if (state.user) { const result = await invokeFunction('create-purchase', { product_id: product.id, parameters }); await loadUserData(); render(); closeModal(); showReceipt(result, amount); return; }
-    const email = $('#email', form).value.trim(); const pending = { product_id: product.id, kind, type, amount, email, parameters, tx_ref: `PUD_${new Date().getFullYear()}_${randomPart()}` }; localStorage.setItem('pudata_pending_guest_purchase', JSON.stringify(pending)); closeModal();
+    const context = receiptContextFromForm(form, kind, product);
+    if (state.user) { const result = await invokeFunction('create-purchase', { product_id: product.id, parameters }); await loadUserData(); render(); closeModal(); showReceipt(result, amount, context); return; }
+    const email = $('#email', form).value.trim(); const pending = { product_id: product.id, kind, type, amount, email, parameters, context, tx_ref: `PUD_${new Date().getFullYear()}_${randomPart()}` }; saveGuestReceiptContext(pending.tx_ref, context); localStorage.setItem('pudata_pending_guest_purchase', JSON.stringify(pending)); closeModal();
     launchFlutterwave({ amount, txRef: pending.tx_ref, email, onSuccess: async (response) => { if (!['successful', 'completed'].includes(response?.status)) return showToast('Flutterwave did not confirm this payment.'); try { await completeGuestPurchase(pending); } catch { showToast(`Fulfilment needs a retry with ${pending.tx_ref}.`); } } });
   }
 }
@@ -447,16 +536,35 @@ function handleAction(action, target) {
 }
 
 document.addEventListener('click', (event) => { const copyTarget = event.target.closest('[data-copy-token]'); if (copyTarget) { const copyPromise = navigator.clipboard ? navigator.clipboard.writeText(copyTarget.dataset.copyToken) : Promise.reject(new Error('Clipboard unavailable')); copyPromise.then(() => showToast('Token copied.')).catch(() => showToast('Copy failed.')); return; } const routeTarget = event.target.closest('[data-route]'); if (routeTarget) { event.preventDefault(); navigate(routeTarget.dataset.route); return; } const adminTarget = event.target.closest('[data-admin-action]'); if (adminTarget) { event.preventDefault(); handleAdminAction(adminTarget); return; } const actionTarget = event.target.closest('[data-action]'); if (actionTarget) handleAction(actionTarget.dataset.action, actionTarget); });
-document.addEventListener('submit', (event) => { event.preventDefault(); handleSubmit(event.target).catch((error) => showToast(error.message || 'Something went wrong.')); });
+document.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const form = event.target;
+  const isPaymentForm = form.id === 'purchase-form' || form.id === 'fund-form';
+  if (isPaymentForm && form.dataset.submitting === 'true') return;
+  const submitButton = isPaymentForm ? form.querySelector('button[type="submit"]') : null;
+  const originalButtonHtml = submitButton?.innerHTML;
+  if (isPaymentForm) { form.dataset.submitting = 'true'; if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Processing…'; } }
+  handleSubmit(form).catch((error) => {
+    if (isPaymentForm) { delete form.dataset.submitting; if (submitButton) { submitButton.disabled = false; submitButton.innerHTML = originalButtonHtml; } }
+    showToast(error.message || 'Something went wrong.');
+  });
+});
 document.addEventListener('change', (event) => {
   if (event.target.id === 'fund-preset' || event.target.id === 'fund-custom') updateFundingSummary();
-  if (event.target.dataset.role === 'network') { const form = event.target.closest('#purchase-form'); const select = $('#product', form); select.innerHTML = productOptions(form.dataset.type, event.target.value); form.dataset.customerVerified = 'false'; }
+  if (event.target.dataset.role === 'network') { const form = event.target.closest('#purchase-form'); updateNetworkSelection(form, event.target.value); form.dataset.customerVerified = 'false'; }
   if (event.target.id === 'admin-status-filter') { state.admin.statusFilter = event.target.value; render(); }
   if (event.target.id === 'admin-product-service') { state.admin.productService = event.target.value; state.admin.productPage = 1; render(); }
   if (event.target.id === 'margin-type') state.admin.marginType = event.target.value;
   if (event.target.id === 'margin-value') state.admin.marginValue = event.target.value;
 });
 document.addEventListener('input', (event) => {
+  if (event.target.dataset.phoneInput) {
+    const form = event.target.closest('#purchase-form');
+    const detected = detectNetwork(event.target.value);
+    if (form && detected) updateNetworkSelection(form, detected);
+    const help = form && $('#network-help', form);
+    if (help && detected) help.textContent = `Detected ${detected}. Tap the logo to change it if your number was ported.`;
+  }
   if (['meter-number', 'smart-card', 'electricity-amount'].includes(event.target.id)) {
     const form = event.target.closest('#purchase-form');
     if (form) { form.dataset.customerVerified = 'false'; if ($('#customer-check', form)) $('#customer-check', form).textContent = ''; }
