@@ -26,6 +26,10 @@
 - [x] Airtime automatically selects the detected network's active VTU product; data shows only the detected network's plans.
 - [x] Payment buttons lock after the first tap until the request responds, preventing duplicate submissions.
 - [x] Receipts show success only for server status exactly `success`; pending payments show the do-not-pay-again message, use Supabase Realtime for logged-in users, and poll guest receipts every 10 seconds for up to 10 minutes.
+- [x] Airtime and Data open as dedicated `/airtime` and `/data` pages with black-and-white layouts, back arrows, cross-links, titles, subtitles, logo-first phone rows, digit-only phone state, and catalogue-driven network logos with fallback initials.
+- [x] Airtime uses ₦50, ₦100, ₦200, ₦500, ₦1,000, and ₦2,000 tiles plus a ₦50–₦50,000 custom amount; the chosen network uses its active VTU product when available, otherwise its first active product.
+- [x] Data shows active selling-price plans for the selected network in a vertical price-sorted list, uses `metadata.valid_for`, and opens a wallet/guest confirmation bottom sheet with network, number, plan, validity, and price.
+- [x] Customer Airtime/Data pages never query product costs; receipts and history show service, network, number, plan or amount, and reference.
 
 ## Profile and sessions
 - [x] The profile page edits full name and phone number.
@@ -35,9 +39,9 @@
 - [x] Log out is visible in More and in the admin header.
 
 ## Admin price management
-- [x] Admin price management shows product name with service/network, admin-only PulseFlow cost from product_costs, selling price, profit, and Active toggle.
+- [x] Admin price management shows product name with service/network, Supplier (CheapDataHub for `cdh-` product IDs), admin-only Supplier cost from product_costs, selling price, profit, and Active toggle.
 - [x] Selling prices support inline Save, search, service/network filtering, and pagination.
 - [x] Zero or negative profit is shown in red.
 - [x] Apply margin supports percentage or fixed ₦ amount for filtered products.
-- [x] SYNC PULSEFLOW PRICES calls refresh-catalogue, reports result/error text, preserves selling prices, and refreshes cost/new-product data.
-- [x] The frontend does not modify supabase/functions or store PulseFlow credentials.
+- [x] SYNC LIVE PRICES calls refresh-catalogue, reports services, categories, products, new products, problems, and error text, preserves selling prices, and refreshes cost/new-product data.
+- [x] The frontend does not modify supabase/functions or store supplier credentials.

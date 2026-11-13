@@ -197,3 +197,53 @@ h1, h2, h3, .wallet-balance, .brand-name { font-family: Manrope, Arial, sans-ser
 .confirm-row.total { padding-top: 14px; border-top: 1px solid var(--line); font-size: 15px; }
 .sr-only { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }
 @media (max-width: 560px) { .service-page { padding-top: 18px; } .amount-grid { gap: 8px; } .amount-tile { min-height: 54px; } .data-plan-grid { gap: 8px; } .data-plan-card { min-height: 130px; padding: 13px; } }
+
+/* Reference-style Airtime and Data pages. */
+.service-page-top { grid-template-columns: 40px 1fr auto; align-items: start; }
+.service-page-top h1 { margin-top: 2px; }
+.service-subtitle { margin-top: 5px; color: var(--muted); font-size: 13px; }
+.phone-network-field { min-height: 76px; border: 0; border-radius: 20px; background: #f3f3f3; overflow: visible; gap: 10px; }
+.phone-network-field:focus-within { border: 0; box-shadow: none; }
+.phone-network-field > input { min-height: 58px; margin: 9px 9px 9px 0; padding: 16px; border: 0; border-radius: 15px; background: white; font-size: 16px; letter-spacing: .03em; }
+.network-selector { width: 76px; min-height: 76px; display: grid; place-items: center; position: relative; border: 0; border-radius: 20px; background: #f3f3f3; color: var(--ink); cursor: pointer; }
+.phone-network-field .network-logo { width: 56px; height: 56px; background: white; color: var(--ink); font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.network-logo-fallback { display: grid; place-items: center; width: 100%; height: 100%; }
+.network-chevron { position: absolute; right: 7px; bottom: 7px; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; background: var(--ink); color: white; font-size: 12px; line-height: 1; }
+.amount-tile { background: #f3f3f3; border-color: #f3f3f3; }
+.amount-input-wrap { background: #f3f3f3; border-color: #f3f3f3; }
+.data-plan-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.data-plan-card { display: flex; align-items: center; justify-content: space-between; gap: 15px; min-height: 82px; padding: 14px 15px; border: 0; border-radius: 17px; background: #f3f3f3; box-shadow: none; transform: none; }
+.data-plan-card > div { display: grid; gap: 8px; }
+.data-plan-card strong { font-size: 15px; letter-spacing: -.02em; }
+.data-plan-card span { width: fit-content; padding: 5px 9px; border-radius: 999px; background: #e2e2e2; color: var(--muted); font-size: 10px; }
+.data-plan-card b { margin: 0; padding: 10px 13px; border-radius: 999px; background: var(--ink); color: white; white-space: nowrap; font-size: 13px; }
+.network-menu { display: grid; gap: 8px; margin-top: 20px; }
+.network-menu-item { display: flex; align-items: center; gap: 13px; width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 15px; background: white; color: var(--ink); text-align: left; }
+.network-menu-item > strong { flex: 1; }
+.network-menu-item .network-logo { width: 42px; height: 42px; background: #f3f3f3; color: var(--ink); }
+.bottom-sheet { align-self: end; margin-bottom: 0; border-radius: 26px 26px 0 0; }
+.failed-message { margin-bottom: 15px; padding: 12px 13px; border-radius: 12px; background: #ffe9e9; color: #9d2020; font-size: 12px; line-height: 1.45; font-weight: 800; }
+.confirm-network-line { display: flex; align-items: center; gap: 11px; margin-bottom: 3px; }
+.confirm-network-line .network-logo { width: 42px; height: 42px; border-radius: 50%; background: #f3f3f3; color: var(--ink); }
+.confirm-email-field { margin-top: 4px; }
+@media (max-width: 560px) { .service-page-top { grid-template-columns: 36px 1fr auto; } .network-selector { width: 74px; } .phone-network-field > input { font-size: 15px; } }
+/* Full-screen service routes match the supplied mobile reference without changing dashboard routes. */
+.service-route .app-shell { padding-bottom: 0; }
+.service-route .topbar, .service-route .site-footer, .service-route .bottom-nav { display: none; }
+.service-route .main-content { width: 100%; max-width: none; }
+.service-route .service-page { width: min(680px, 100%); min-height: 100vh; margin: 0 auto; padding: 74px 28px 70px; }
+.service-route .service-page-top { margin-bottom: 68px; }
+.service-route .service-page-top h1 { font-size: clamp(34px, 8vw, 54px); }
+.service-route .phone-network-field { margin-top: 3px; }
+.service-route .field > label { display: none; }
+.service-route .field-help { display: none; }
+.service-route .airtime-options { display: grid; gap: 22px; margin-top: 38px; }
+.service-route .airtime-options[hidden] { display: none; }
+.service-route .amount-grid { margin-top: 0; }
+.service-route .service-pay-button { width: 100%; min-height: 52px; margin-top: 2px; font-size: 14px; }
+.service-route .data-plan-grid { margin-top: 38px; }
+.service-route .data-plan-card { min-height: 88px; }
+@media (max-width: 560px) {
+  .service-route .service-page { padding: 68px 28px 58px; }
+  .service-route .service-page-top { margin-bottom: 70px; }
+}
