@@ -282,8 +282,8 @@ function dataValidity(product) {
 function dataValidityLabel(product) { const value = String(metadataValue(product, ['valid_for', 'validity', 'validity_period']) || dataValidity(product)); return value.toLowerCase().startsWith('for ') ? value : `For ${value}`; }
 function dataPlanSize(product) { return String(metadataValue(product, ['data_size', 'size', 'volume', 'allowance', 'plan_size']) || product.name); }
 function renderAirtimePage() {
-  const tiles = [50, 100, 200, 500, 1000, 2000].map((amount) => `<button class="amount-tile" type="button" data-action="airtime-amount" data-amount="${amount}">₦${amount.toLocaleString('en-NG')}</button>`).join('');
-  return `<section class="service-page"><div class="service-page-top"><button class="back-button" type="button" data-route="/" aria-label="Back">←</button><div><h1>Airtime</h1><p class="service-subtitle">Buy airtime and get it instantly</p></div><button class="text-button" type="button" data-route="/data">Data</button></div><form id="purchase-form" class="service-purchase-form" data-kind="airtime" data-type="airtime">${phoneNetworkField('airtime')}<input id="product" type="hidden" data-role="product" /><div id="airtime-options" class="airtime-options" hidden><div class="field"><label>Choose amount</label><div class="amount-grid">${tiles}</div></div><div class="field"><label for="amount">Amount</label><div class="amount-input-wrap"><span>₦</span><input id="amount" type="number" min="50" max="50000" step="1" inputmode="numeric" placeholder="Enter amount" required /></div></div>${!state.user ? '<div class="field"><label for="email">Receipt email</label><input id="email" type="email" required /></div>' : ''}<button class="button button-dark service-pay-button" type="submit" disabled>Pay <span>↗</span></button></div></form></section>`;
+  const tiles = [50, 100, 200, 500, 1000, 2000].map((amount) => `<button class="amount-tile" type="button" data-action="airtime-amount" data-amount="${amount}">₦${amount}</button>`).join('');
+  return `<section class="service-page"><div class="service-page-top"><button class="back-button" type="button" data-route="/" aria-label="Back">←</button><div><h1>Airtime</h1><p class="service-subtitle">Buy airtime and get it instantly</p></div><button class="text-button" type="button" data-route="/data">Data</button></div><form id="purchase-form" class="service-purchase-form" data-kind="airtime" data-type="airtime">${phoneNetworkField('airtime')}<input id="product" type="hidden" data-role="product" /><div id="airtime-options" class="airtime-options" hidden><div class="field"><label>Choose amount</label><div class="amount-grid">${tiles}</div></div><div class="field"><label for="amount">Amount</label><div class="amount-input-wrap"><span>₦</span><input id="amount" type="number" min="50" max="50000" step="1" inputmode="numeric" placeholder="Amount" required /></div></div>${!state.user ? '<div class="field"><label for="email">Receipt email</label><input id="email" type="email" required /></div>' : ''}<button class="button button-dark service-pay-button" type="submit" disabled>Pay <span>↗</span></button></div></form></section>`;
 }
 function renderDataPage() {
   return `<section class="service-page"><div class="service-page-top"><button class="back-button" type="button" data-route="/" aria-label="Back">←</button><div><h1>Data</h1><p class="service-subtitle">Buy data and get it instantly</p></div><button class="text-button" type="button" data-route="/airtime">Airtime</button></div><form id="purchase-form" class="service-purchase-form" data-kind="data" data-type="data">${phoneNetworkField('data')}<select id="product" data-role="product" hidden disabled></select><div id="data-plan-grid" class="data-plan-grid"><div class="plan-empty">Enter your phone number to see available plans.</div></div><input id="email" type="email" hidden /><button class="button button-dark service-pay-button sr-only" type="submit">Pay</button></form></section>`;
@@ -325,9 +325,11 @@ function updateNetworkHelp(form, manual = false) {
 }
 function updateAirtimePayButton(form) {
   if (!form || form.dataset.kind !== 'airtime') return;
-  const amount = Number($('#amount', form)?.value || 0); const ready = Boolean($('#phone', form)?.value && $('#product', form)?.value && amount >= 50 && amount <= 50000);
+  const phoneDigits = String($('#phone', form)?.value || '').replace(/\D/g, '');
+  const hasPhone = phoneDigits.length >= 10;
+  const amount = Number($('#amount', form)?.value || 0); const ready = Boolean(hasPhone && $('#product', form)?.value && amount >= 50 && amount <= 50000);
   const options = $('#airtime-options', form);
-  if (options) options.hidden = !Boolean($('#phone', form)?.value);
+  if (options) options.hidden = !hasPhone;
   const button = form.querySelector('.service-pay-button');
   if (button && form.dataset.submitting !== 'true') { button.disabled = !ready; button.innerHTML = ready ? `Pay ${money(amount)} <span>↗</span>` : 'Pay <span>↗</span>'; }
 }
@@ -638,7 +640,12 @@ document.addEventListener('input', (event) => {
     if (form) updateNetworkHelp(form);
     if (form?.dataset.kind === 'airtime') updateAirtimePayButton(form);
   }
-  if (event.target.id === 'amount' && event.target.closest('#purchase-form')) updateAirtimePayButton(event.target.closest('#purchase-form'));
+  if (event.target.id === 'amount' && event.target.closest('#purchase-form')) {
+    const form = event.target.closest('#purchase-form');
+    const amount = Number(event.target.value || 0);
+    $$('.amount-tile').forEach((tile) => tile.classList.toggle('selected', Number(tile.dataset.amount) === amount && String(amount) === String(event.target.value)));
+    updateAirtimePayButton(form);
+  }
   if (['meter-number', 'smart-card', 'electricity-amount'].includes(event.target.id)) {
     const form = event.target.closest('#purchase-form');
     if (form) { form.dataset.customerVerified = 'false'; if ($('#customer-check', form)) $('#customer-check', form).textContent = ''; }

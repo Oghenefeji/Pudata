@@ -45,3 +45,7 @@
 - [x] Apply margin supports percentage or fixed ₦ amount for filtered products.
 - [x] SYNC LIVE PRICES calls refresh-catalogue, reports services, categories, products, new products, problems, and error text, preserves selling prices, and refreshes cost/new-product data.
 - [x] The frontend does not modify supabase/functions or store supplier credentials.
+
+## Airtime price entry
+- [x] After a valid 10-digit phone number is entered, Airtime reveals the live preset price tiles ₦50, ₦100, ₦200, ₦500, ₦1000, and ₦2000 plus a custom Amount input.
+- [x] Customers can enter a custom Airtime amount from ₦50 to ₦50,000; the Pay button reflects the selected amount and remains disabled until the phone, product, and amount are valid.
