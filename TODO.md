@@ -49,3 +49,11 @@
 ## Airtime price entry
 - [x] After a valid 10-digit phone number is entered, Airtime reveals the live preset price tiles ₦50, ₦100, ₦200, ₦500, ₦1000, and ₦2000 plus a custom Amount input.
 - [x] Customers can enter a custom Airtime amount from ₦50 to ₦50,000; the Pay button reflects the selected amount and remains disabled until the phone, product, and amount are valid.
+
+
+## Requested checkout and operations updates
+- [x] Airtime and Data share phone normalization for spaces/dashes, +234/234 prefixes, 10-digit local numbers, and 11-digit 0-prefixed numbers; Airtime reveals ₦50–₦2,000 tiles, custom ₦50–₦50,000 amount, and Pay only for a valid phone such as 08080605966.
+- [x] Logged-in wallet checkout checks transaction-pin status, supports Create PIN and Change PIN from Profile, and uses a masked keypad sheet with PIN error handling; guests skip the PIN step.
+- [x] Purchase receipts use success, processing, and failure sheets with server-status gating, transaction details, copyable service tokens/pins, live logged-in updates, and guest polling.
+- [x] Admin pricing labels the product control “Show to customers” with the off-state helper and Transactions includes “Re-check all pending” with returned counts.
+- [x] Support uses the WhatsApp fallback URL in Help centre, More, and the Profile contact prompt.

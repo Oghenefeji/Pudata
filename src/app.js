@@ -3,7 +3,7 @@ const runtimeConfig = {
   supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
   flutterwavePublicKey: import.meta.env.VITE_FLUTTERWAVE_PUBLIC_KEY || '',
   appUrl: import.meta.env.VITE_APP_URL || '',
-  supportWhatsappUrl: import.meta.env.VITE_SUPPORT_WHATSAPP_URL || ''
+  supportWhatsappUrl: import.meta.env.VITE_SUPPORT_WHATSAPP_URL || 'https://wa.me/2348079374019'
 };
 
 const supportEmail = 'teamfeji4@gmail.com';
@@ -26,6 +26,7 @@ const state = {
   dataValidity: 'Daily',
   dataConfirmProductId: '',
   route: window.location.pathname || '/',
+  pin: { hasPin: null, pendingPurchase: null, value: '' },
   admin: {
     loading: false, users: [], transactions: [], statsTransactions: [], pricing: [], announcements: [], support: null,
     products: [], costs: {}, userCount: 0, error: '', statusFilter: '', referenceFilter: '', productSearch: '', productService: '', productPage: 1,
@@ -107,11 +108,16 @@ async function loadUserData() {
   state.isAdmin = Boolean(state.profile && !state.profile.suspended && ['admin', 'support'].includes(state.profile.role));
 }
 
+async function loadTransactionPinStatus() {
+  if (!state.user || !supabaseClient) { state.pin.hasPin = null; return; }
+  try { const result = await invokeFunction('transaction-pin', { action: 'status' }); state.pin.hasPin = Boolean(result?.has_pin); }
+  catch { state.pin.hasPin = null; }
+}
 async function syncSession() {
   if (!supabaseClient) { render(); return; }
   const { data } = await supabaseClient.auth.getSession();
   state.session = data.session; state.user = data.session?.user || null;
-  await Promise.all([loadUserData(), loadCatalogue()]);
+  await Promise.all([loadUserData(), loadCatalogue(), loadTransactionPinStatus()]);
   render();
   if (state.route === '/admin' && state.isAdmin) await loadAdminData();
   await retryPendingGuestPurchase();
@@ -132,7 +138,13 @@ const NETWORK_PREFIXES = {
   Glo: ['0705', '0805', '0807', '0811', '0815', '0905', '0915'],
   '9mobile': ['0809', '0817', '0818', '0908', '0909']
 };
-function normalizePhone(value) { const digits = String(value || '').replace(/\D/g, ''); return digits.startsWith('234') ? `0${digits.slice(3)}` : digits; }
+function normalizePhone(value) {
+  let digits = String(value || '').replace(/[\s-]/g, '').replace(/\D/g, '');
+  if (digits.startsWith('234')) digits = `0${digits.slice(3)}`;
+  if (digits.length === 10 && !digits.startsWith('0')) digits = `0${digits}`;
+  return digits;
+}
+function isValidPhone(value) { return /^0\d{10}$/.test(normalizePhone(value)); }
 function detectNetwork(value) { const prefix = normalizePhone(value).slice(0, 4); return Object.entries(NETWORK_PREFIXES).find(([, prefixes]) => prefixes.includes(prefix))?.[0] || ''; }
 function normalizeNetwork(value) { return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
 function networkMatches(value, detected) { const actual = normalizeNetwork(value); const wanted = normalizeNetwork(detected); return Boolean(actual && wanted) && (actual === wanted || actual.includes(wanted) || wanted.includes(actual)); }
@@ -177,12 +189,13 @@ function renderLegal(kind) {
 }
 function renderProfile() {
   if (!state.user) return renderDashboard();
-  return `<section class="profile-page"><button class="text-button" type="button" data-route="/">← Back home</button><div class="profile-hero"><div class="profile-avatar-large">${avatarMarkup('large')}</div><div><div class="date-line">Profile</div><h1>${escapeHtml(firstName())}</h1><p>${escapeHtml(state.user.email)}</p></div></div><form class="modal-form profile-form" id="profile-form"><div class="field"><label for="profile-name">Full name</label><input id="profile-name" value="${escapeHtml(state.profile?.full_name || '')}" required /></div><div class="field"><label for="profile-phone">Phone number</label><input id="profile-phone" inputmode="tel" value="${escapeHtml(state.profile?.phone || '')}" /></div><div class="field"><label for="avatar-file">Profile picture</label><input id="avatar-file" type="file" accept="image/jpeg,image/png,image/webp" /><small class="field-help">JPG, PNG or WEBP. Maximum 2MB.</small></div><div class="profile-picture-actions">${state.profile?.avatar_url ? '<button class="button button-outline" type="button" data-action="remove-avatar">Remove picture</button>' : ''}<button class="button button-dark" type="submit">Save profile <span>↗</span></button></div></form><div class="profile-danger"><button class="button button-outline" type="button" data-action="logout">Log out</button></div></section>`;
+  const pinAction = state.pin.hasPin ? 'Change PIN' : 'Create PIN';
+  return `<section class="profile-page"><button class="text-button" type="button" data-route="/">← Back home</button><div class="profile-hero"><div class="profile-avatar-large">${avatarMarkup('large')}</div><div><div class="date-line">Profile</div><h1>${escapeHtml(firstName())}</h1><p>${escapeHtml(state.user.email)}</p></div></div><form class="modal-form profile-form" id="profile-form"><div class="field"><label for="profile-name">Full name</label><input id="profile-name" value="${escapeHtml(state.profile?.full_name || '')}" required /></div><div class="field"><label for="profile-phone">Phone number</label><input id="profile-phone" inputmode="tel" value="${escapeHtml(state.profile?.phone || '')}" /></div><div class="field"><label for="avatar-file">Profile picture</label><input id="avatar-file" type="file" accept="image/jpeg,image/png,image/webp" /><small class="field-help">JPG, PNG or WEBP. Maximum 2MB.</small></div><div class="profile-picture-actions">${state.profile?.avatar_url ? '<button class="button button-outline" type="button" data-action="remove-avatar">Remove picture</button>' : ''}<button class="button button-dark" type="submit">Save profile <span>↗</span></button></div></form><div class="profile-pin-card"><div><strong>Transaction PIN</strong><span>${state.pin.hasPin ? 'Your 4-digit PIN protects wallet payments.' : 'Create a 4-digit PIN before your first wallet payment.'}</span></div><button class="button button-outline" type="button" data-action="transaction-pin">${pinAction}</button></div><p class="profile-support">Need your own VTU website like this? <a href="${escapeHtml(runtimeConfig.supportWhatsappUrl)}" target="_blank" rel="noreferrer">Contact +2348079374019 on WhatsApp.</a></p><div class="profile-danger"><button class="button button-outline" type="button" data-action="logout">Log out</button></div></section>`;
 }
 function updateChrome() {
   $('[data-avatar]').innerHTML = avatarMarkup();
   const drawer = $('#drawer-links');
-  drawer.innerHTML = `<button type="button" data-action="profile"><span>◎</span> Profile</button><button type="button" data-action="help"><span>?</span> Help centre</button><button type="button" data-route="/terms"><span>§</span> Terms of Service</button><button type="button" data-route="/privacy"><span>⌁</span> Privacy Policy</button>${state.isAdmin ? '<button type="button" data-route="/admin"><span>⌂</span> Admin</button>' : ''}${state.user ? '<button type="button" data-action="logout"><span>↪</span> Log out</button>' : ''}`;
+  drawer.innerHTML = `<button type="button" data-action="profile"><span>◎</span> Profile</button><button type="button" data-action="help"><span>?</span> Help centre</button><a class="drawer-support-link" href="${escapeHtml(runtimeConfig.supportWhatsappUrl)}" target="_blank" rel="noreferrer"><span>↗</span> Chat on WhatsApp</a><button type="button" data-route="/terms"><span>§</span> Terms of Service</button><button type="button" data-route="/privacy"><span>⌁</span> Privacy Policy</button>${state.isAdmin ? '<button type="button" data-route="/admin"><span>⌂</span> Admin</button>' : ''}${state.user ? '<button type="button" data-action="logout"><span>↪</span> Log out</button>' : ''}`;
   $$('.bottom-nav-item').forEach((item) => item.classList.toggle('active', item.dataset.route === state.route || (state.route === '/admin' && item.dataset.action === 'more')));
 }
 function render() {
@@ -205,7 +218,7 @@ function showAuth(mode = 'login') {
   openModal({ kicker: 'ACCOUNT', title: signup ? 'Create your account' : 'Log in to pudata', intro: signup ? 'Save your wallet, receipts, and payment history in one place.' : 'Use your pudata account to fund a wallet and see your history.', body: `<form class="modal-form" id="auth-form" data-mode="${signup ? 'signup' : 'login'}"><div class="field"><label for="auth-email">Email address</label><input id="auth-email" type="email" required /></div>${signup ? '<div class="field"><label for="auth-name">Full name</label><input id="auth-name" type="text" required /></div>' : ''}<div class="field"><label for="auth-password">Password</label><input id="auth-password" type="password" minlength="6" required /></div>${signup ? '<p class="modal-quiet">By signing up you agree to the Terms of Service and Privacy Policy.</p>' : ''}<div class="modal-actions"><button class="button button-dark" type="submit">${signup ? 'Sign up' : 'Log in'} <span>↗</span></button></div><button class="text-button" type="button" data-action="${signup ? 'login' : 'signup'}">${signup ? 'Already have an account? Log in' : 'Create an account'}</button></form>` });
 }
 function showHelp() {
-  const whatsapp = runtimeConfig.supportWhatsappUrl ? `<a class="button button-dark" href="${escapeHtml(runtimeConfig.supportWhatsappUrl)}" target="_blank" rel="noreferrer">WhatsApp support ↗</a>` : '<span class="notice">WhatsApp support link is not configured yet.</span>';
+  const whatsapp = `<a class="button button-dark" href="${escapeHtml(runtimeConfig.supportWhatsappUrl)}" target="_blank" rel="noreferrer">Chat on WhatsApp ↗</a>`;
   openModal({ kicker: 'HELP CENTRE', title: 'How can we help?', intro: `Email ${supportEmail} for support.`, body: `<div class="admin-list"><div class="notice"><strong>Pending order</strong><br />Keep the original reference. Do not pay again with a new reference.</div><div class="notice"><strong>Failed purchase</strong><br />Wallet purchases are returned automatically when the failure is clear.</div><div class="notice"><strong>Wallet funding</strong><br />Funding is credited only after Flutterwave verification.</div></div><div class="modal-actions"><a class="button button-outline" href="mailto:${supportEmail}">Email support ↗</a>${whatsapp}</div>` });
 }
 function receiptDetailsMarkup(details) {
@@ -224,11 +237,15 @@ function receiptDetailsMarkup(details) {
 }
 function renderReceiptResult(result, fallbackAmount = 0) {
   const details = result.details || result.pins || null;
-  const status = String(result.status || 'pending');
-  const service = serviceDisplayName(result.service || result.service_type || '—');
-  const pendingMessage = status === 'pending' ? '<div class="pending-message">Processing. Do not pay again. This screen updates when it completes.</div>' : '';
-  const failedMessage = ['failed', 'reversed', 'refund_pending', 'refunded'].includes(status) ? `<div class="failed-message">${escapeHtml(result.failure_reason || 'This payment could not be completed.')} A wallet payment was refunded.</div>` : '';
-  return `<div class="receipt">${pendingMessage}${failedMessage}<div class="receipt-rows"><div class="receipt-row"><span>Reference</span><strong>${escapeHtml(result.reference || result.client_reference || '—')}</strong></div><div class="receipt-row"><span>Status</span><strong>${escapeHtml(status)}</strong></div><div class="receipt-row"><span>Service</span><strong>${escapeHtml(service)}</strong></div>${result.network ? `<div class="receipt-row"><span>Network</span><strong>${escapeHtml(result.network)}</strong></div>` : ''}${result.number ? `<div class="receipt-row"><span>Number</span><strong>${escapeHtml(result.number)}</strong></div>` : ''}${result.plan ? `<div class="receipt-row"><span>Plan</span><strong>${escapeHtml(result.plan)}</strong></div>` : ''}<div class="receipt-row"><span>Amount</span><strong>${money(result.amount ?? fallbackAmount)}</strong></div></div>${receiptDetailsMarkup(details)}<button class="button button-outline" type="button" data-action="guest-receipt-lookup">Look up another receipt</button></div>`;
+  const rawStatus = String(result.status || 'pending').toLowerCase();
+  const status = rawStatus === 'success' ? 'success' : ['failed', 'reversed', 'refund_pending', 'refunded'].includes(rawStatus) ? rawStatus : 'pending';
+  const serviceType = result.service || result.service_type || '';
+  const service = serviceDisplayName(serviceType);
+  const identifierLabel = serviceType === 'tv' ? 'Smart card' : serviceType === 'electricity' ? 'Meter number' : 'Phone number';
+  const when = result.created_at || result.updated_at || result.date;
+  const pendingMessage = status === 'pending' ? '<div class="pending-message"><strong>Processing</strong><br />Do not pay again. This screen updates when it completes.</div>' : '';
+  const failedMessage = status !== 'pending' && status !== 'success' ? `<div class="failed-message"><strong>Payment failed</strong><br />${escapeHtml(result.failure_reason || 'This payment could not be completed.')} ${state.user ? 'Your wallet was refunded.' : ''}</div>` : '';
+  return `<div class="receipt">${status === 'success' ? '<div class="receipt-success-icon" aria-hidden="true">✓</div>' : ''}${pendingMessage}${failedMessage}<div class="receipt-rows">${serviceType ? `<div class="receipt-row"><span>Recharge type</span><strong>${escapeHtml(service)}</strong></div>` : ''}${result.number ? `<div class="receipt-row"><span>${identifierLabel}</span><strong>${escapeHtml(result.number)}</strong></div>` : ''}${result.plan ? `<div class="receipt-row"><span>Plan</span><strong>${escapeHtml(result.plan)}</strong></div>` : ''}<div class="receipt-row"><span>Amount</span><strong>${money(result.amount ?? fallbackAmount)}</strong></div><div class="receipt-row"><span>Date</span><strong>${escapeHtml(when ? new Date(when).toLocaleString('en-NG', { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '—')}</strong></div><div class="receipt-row"><span>Reference</span><strong>${escapeHtml(result.reference || result.client_reference || '—')}</strong></div></div>${receiptDetailsMarkup(details)}<button class="button button-dark receipt-close-button" type="button" data-action="close-modal">Close</button></div>`;
 }
 function stopPaymentWatch() {
   if (!activePaymentWatch) return;
@@ -236,11 +253,11 @@ function stopPaymentWatch() {
   if (activePaymentWatch.channel && supabaseClient) supabaseClient.removeChannel(activePaymentWatch.channel);
   activePaymentWatch = null;
 }
-function receiptStatusTitle(status) { return status === 'success' ? 'Success' : status === 'pending' ? 'Processing' : `Payment ${status || 'failed'}`; }
+function receiptStatusTitle(status, service = '') { return status === 'success' ? (['airtime', 'data'].includes(String(service).toLowerCase()) ? 'Recharge successful' : 'Payment successful') : status === 'pending' ? 'Processing' : 'Payment failed'; }
 function showReceipt(result, fallbackAmount = 0, context = {}) {
   stopPaymentWatch();
   const merged = { ...context, ...result, service: result.service || context.service, network: result.network || context.network, number: result.number || context.number };
-  openModal({ kicker: 'RECEIPT', title: receiptStatusTitle(merged.status), intro: merged.status === 'pending' ? '' : 'Keep this reference for support or receipt lookup.', body: renderReceiptResult(merged, fallbackAmount) });
+  openModal({ kicker: 'RECEIPT', title: receiptStatusTitle(merged.status, merged.service || merged.service_type), intro: merged.status === 'pending' ? '' : 'Keep this reference for support or receipt lookup.', body: renderReceiptResult(merged, fallbackAmount) });
   if (merged.status === 'pending' && merged.reference) {
     if (merged.guestEmail) startGuestPaymentWatch(merged.reference, merged.guestEmail, fallbackAmount, context);
     else startRealtimePaymentWatch(merged.reference, fallbackAmount, context);
@@ -292,7 +309,7 @@ function renderDataPlans(form) {
   const grid = $('#data-plan-grid', form);
   if (!grid) return;
   const network = $('#network', form)?.value;
-  if (!network) { grid.innerHTML = '<div class="plan-empty">Enter your phone number to see available plans.</div>'; return; }
+  if (!network || !isValidPhone($('#phone', form)?.value)) { grid.innerHTML = '<div class="plan-empty">Enter your phone number to see available plans.</div>'; return; }
   const plans = serviceProducts('data').filter((product) => networkMatches(productNetwork(product, 'data'), network)).sort((a, b) => Number(a.selling_price) - Number(b.selling_price));
   grid.innerHTML = plans.length ? plans.map((product) => `<button class="data-plan-card" type="button" data-action="data-plan" data-id="${escapeHtml(product.id)}"><div><strong>${escapeHtml(product.name || dataPlanSize(product))}</strong><span>${escapeHtml(dataValidityLabel(product))}</span></div><b>${money(product.selling_price)}</b></button>`).join('') : '<div class="plan-empty">No plans are available for this network.</div>';
 }
@@ -326,7 +343,7 @@ function updateNetworkHelp(form, manual = false) {
 function updateAirtimePayButton(form) {
   if (!form || form.dataset.kind !== 'airtime') return;
   const phoneDigits = String($('#phone', form)?.value || '').replace(/\D/g, '');
-  const hasPhone = phoneDigits.length >= 10;
+  const hasPhone = isValidPhone(phoneDigits);
   const amount = Number($('#amount', form)?.value || 0); const ready = Boolean(hasPhone && $('#product', form)?.value && amount >= 50 && amount <= 50000);
   const options = $('#airtime-options', form);
   if (options) options.hidden = !hasPhone;
@@ -505,7 +522,7 @@ function renderAdminProducts() {
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   state.admin.productPage = Math.min(state.admin.productPage, pageCount);
   const visible = filtered.slice((state.admin.productPage - 1) * pageSize, state.admin.productPage * pageSize);
-  const rows = visible.map((product) => { const cost = adminCost(product); const profit = cost === null ? null : Number(product.selling_price) - cost; return `<tr><td><strong>${escapeHtml(product.name)}</strong><span>${escapeHtml(productNetwork(product, product.product_type))} · ${escapeHtml(product.product_type)}</span></td><td>${escapeHtml(productSupplier(product))}</td><td>${cost === null ? '<span class="cost-unavailable">Unavailable</span>' : money(cost)}</td><td><div class="inline-price"><input class="admin-price-input" type="number" min="0" step="0.01" value="${Number(product.selling_price).toFixed(2)}" data-price-id="${escapeHtml(product.id)}" /><button class="text-button" data-admin-action="save-price" data-id="${escapeHtml(product.id)}">Save</button></div></td><td class="${profit !== null && profit <= 0 ? 'profit-negative' : ''}">${profit === null ? '<span class="cost-unavailable">Unavailable</span>' : money(profit)}</td><td><button class="toggle ${product.active ? 'on' : ''}" type="button" data-admin-action="toggle-product" data-id="${escapeHtml(product.id)}" aria-label="Toggle ${escapeHtml(product.name)}">${product.active ? 'On' : 'Off'}</button></td></tr>`; }).join('');
+  const rows = visible.map((product) => { const cost = adminCost(product); const profit = cost === null ? null : Number(product.selling_price) - cost; return `<tr><td><strong>${escapeHtml(product.name)}</strong><span>${escapeHtml(productNetwork(product, product.product_type))} · ${escapeHtml(product.product_type)}</span></td><td>${escapeHtml(productSupplier(product))}</td><td>${cost === null ? '<span class="cost-unavailable">Unavailable</span>' : money(cost)}</td><td><div class="inline-price"><input class="admin-price-input" type="number" min="0" step="0.01" value="${Number(product.selling_price).toFixed(2)}" data-price-id="${escapeHtml(product.id)}" /><button class="text-button" data-admin-action="save-price" data-id="${escapeHtml(product.id)}">Save</button></div></td><td class="${profit !== null && profit <= 0 ? 'profit-negative' : ''}">${profit === null ? '<span class="cost-unavailable">Unavailable</span>' : money(profit)}</td><td><button class="toggle ${product.active ? 'on' : ''}" type="button" data-admin-action="toggle-product" data-id="${escapeHtml(product.id)}" aria-label="Show to customers: ${escapeHtml(product.name)}">Show to customers</button><small class="toggle-help">${product.active ? 'Show to customers' : 'Hidden from customers'}<br />Off hides this product from customers</small></td></tr>`; }).join('');
   return `<div class="admin-toolbar price-toolbar"><input class="admin-filter" id="admin-product-search" value="${escapeHtml(state.admin.productSearch)}" aria-label="Search products" /><select class="admin-filter" id="admin-product-service" aria-label="Filter products by service or network"><option value="">All services and networks</option>${[...new Set(state.admin.products.flatMap((p) => [p.product_type, productNetwork(p, p.product_type)]))].sort().map((value) => `<option value="${escapeHtml(value)}" ${state.admin.productService === value ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}</select></div><div class="admin-card"><table class="admin-table price-table"><thead><tr><th>Product name<br /><span>Service / network</span></th><th>Supplier</th><th>Supplier cost</th><th>My selling price</th><th>My profit</th><th>Active</th></tr></thead><tbody>${rows || '<tr><td colspan="6">No products match this filter.</td></tr>'}</tbody></table></div><div class="pagination"><button class="text-button" data-admin-action="product-page" data-page="${state.admin.productPage - 1}" ${state.admin.productPage <= 1 ? 'disabled' : ''}>← Previous</button><span>Page ${state.admin.productPage} of ${pageCount}</span><button class="text-button" data-admin-action="product-page" data-page="${state.admin.productPage + 1}" ${state.admin.productPage >= pageCount ? 'disabled' : ''}>Next →</button></div>`;
 }
 function renderAdmin() {
@@ -520,13 +537,14 @@ function renderAdmin() {
   const attention = state.admin.transactions.filter((t) => ['pending', 'failed', 'reversed', 'refund_pending'].includes(t.status));
   const announcements = state.admin.announcements.length ? `<div class="admin-list">${state.admin.announcements.map((a) => `<div class="notice"><strong>${escapeHtml(a.title)}</strong><br />${escapeHtml(a.body)}</div>`).join('')}</div>` : '<div class="empty-state"><strong>No announcements found</strong></div>';
   const support = state.admin.support || {};
-  return `<section class="dashboard-head admin-head"><div><div class="date-line">Operations</div><h1>Admin</h1><p>Live records and controls for pudata.</p></div><button class="button button-outline" data-action="logout">Log out</button></section>${error}<section class="section"><div class="admin-grid"><div class="metric"><span>Total users</span><strong>${state.admin.userCount}</strong></div><div class="metric"><span>Total sales</span><strong>${money(sales)}</strong></div><div class="metric"><span>Total profit</span><strong>${money(profit)}</strong></div><div class="metric"><span>Pending / failed</span><strong>${pending} / ${failed}</strong></div></div></section><section class="section"><div class="section-heading"><div><h2>Price management</h2><p>Customers see selling price only. Supplier cost is admin-only.</p></div></div><div class="price-management"><button class="button button-dark" data-admin-action="sync-prices">SYNC LIVE PRICES</button>${state.admin.syncMessage ? `<div class="notice">${escapeHtml(state.admin.syncMessage)}</div>` : ''}<div class="admin-toolbar margin-toolbar"><select class="admin-filter" id="margin-type" aria-label="Margin type"><option value="percentage" ${state.admin.marginType === 'percentage' ? 'selected' : ''}>Percentage margin</option><option value="fixed" ${state.admin.marginType === 'fixed' ? 'selected' : ''}>Fixed naira margin</option></select><input class="admin-filter" id="margin-value" type="number" min="0" step="0.01" value="${escapeHtml(state.admin.marginValue)}" aria-label="Margin value" /><button class="button button-outline" data-admin-action="apply-margin">Apply margin to filtered products</button></div>${renderAdminProducts()}</div></section><section class="section"><div class="section-heading"><div><h2>Users</h2><p>Live profile records.</p></div></div>${users}</section><section class="section"><div class="section-heading"><div><h2>Transactions</h2><p>Latest live transaction records.</p></div></div><div class="admin-toolbar"><select class="admin-filter" id="admin-status-filter" aria-label="Filter transactions by status"><option value="">All statuses</option><option value="pending" ${state.admin.statusFilter === 'pending' ? 'selected' : ''}>Pending</option><option value="success" ${state.admin.statusFilter === 'success' ? 'selected' : ''}>Success</option><option value="failed" ${state.admin.statusFilter === 'failed' ? 'selected' : ''}>Failed</option></select><input class="admin-filter" id="admin-reference-filter" value="${escapeHtml(state.admin.referenceFilter)}" aria-label="Filter by reference or supplier reference" /></div>${transactions}</section><section class="section"><div class="section-heading"><div><h2>Pending / Failed</h2><p>Transactions needing an operational decision.</p></div></div>${attention.length ? `<div class="transaction-list">${attention.map((t) => `<div class="transaction-row"><div><strong>${escapeHtml(t.client_reference)}</strong><span>${escapeHtml(t.service_type)} · ${escapeHtml(t.status)}</span></div><div><button class="text-button" data-admin-action="recheck" data-reference="${escapeHtml(t.client_reference)}">Re-check</button><button class="text-button" data-admin-action="refund" data-reference="${escapeHtml(t.client_reference)}">Refund</button></div></div>`).join('')}</div>` : '<div class="empty-state"><strong>No pending or failed transactions</strong></div>'}</section><section class="section"><div class="section-heading"><div><h2>Pricing rules</h2><p>Margins from live pricing rules.</p></div></div>${pricing}<div class="admin-toolbar"><button class="button button-dark" data-admin-action="refresh-catalogue">Refresh catalogue</button></div></section><section class="section"><div class="section-heading"><div><h2>Announcements</h2><p>Published notices from Supabase.</p></div></div>${announcements}</section><section class="section"><div class="section-heading"><div><h2>Support settings</h2><p>Customer support contact.</p></div></div><div class="notice">${escapeHtml(support.support_email || supportEmail)}${support.whatsapp_url ? ` · <a href="${escapeHtml(support.whatsapp_url)}" target="_blank" rel="noreferrer">WhatsApp</a>` : ''}</div></section>`;
+  return `<section class="dashboard-head admin-head"><div><div class="date-line">Operations</div><h1>Admin</h1><p>Live records and controls for pudata.</p></div><button class="button button-outline" data-action="logout">Log out</button></section>${error}<section class="section"><div class="admin-grid"><div class="metric"><span>Total users</span><strong>${state.admin.userCount}</strong></div><div class="metric"><span>Total sales</span><strong>${money(sales)}</strong></div><div class="metric"><span>Total profit</span><strong>${money(profit)}</strong></div><div class="metric"><span>Pending / failed</span><strong>${pending} / ${failed}</strong></div></div></section><section class="section"><div class="section-heading"><div><h2>Price management</h2><p>Customers see selling price only. Supplier cost is admin-only.</p></div></div><div class="price-management"><button class="button button-dark" data-admin-action="sync-prices">SYNC LIVE PRICES</button>${state.admin.syncMessage ? `<div class="notice">${escapeHtml(state.admin.syncMessage)}</div>` : ''}<div class="admin-toolbar margin-toolbar"><select class="admin-filter" id="margin-type" aria-label="Margin type"><option value="percentage" ${state.admin.marginType === 'percentage' ? 'selected' : ''}>Percentage margin</option><option value="fixed" ${state.admin.marginType === 'fixed' ? 'selected' : ''}>Fixed naira margin</option></select><input class="admin-filter" id="margin-value" type="number" min="0" step="0.01" value="${escapeHtml(state.admin.marginValue)}" aria-label="Margin value" /><button class="button button-outline" data-admin-action="apply-margin">Apply margin to filtered products</button></div>${renderAdminProducts()}</div></section><section class="section"><div class="section-heading"><div><h2>Users</h2><p>Live profile records.</p></div></div>${users}</section><section class="section"><div class="section-heading"><div><h2>Transactions</h2><p>Latest live transaction records.</p></div><button class="button button-outline" data-admin-action="recheck-all-pending">Re-check all pending</button></div><div class="admin-toolbar"><select class="admin-filter" id="admin-status-filter" aria-label="Filter transactions by status"><option value="">All statuses</option><option value="pending" ${state.admin.statusFilter === 'pending' ? 'selected' : ''}>Pending</option><option value="success" ${state.admin.statusFilter === 'success' ? 'selected' : ''}>Success</option><option value="failed" ${state.admin.statusFilter === 'failed' ? 'selected' : ''}>Failed</option></select><input class="admin-filter" id="admin-reference-filter" value="${escapeHtml(state.admin.referenceFilter)}" aria-label="Filter by reference or supplier reference" /></div>${transactions}</section><section class="section"><div class="section-heading"><div><h2>Pending / Failed</h2><p>Transactions needing an operational decision.</p></div></div>${attention.length ? `<div class="transaction-list">${attention.map((t) => `<div class="transaction-row"><div><strong>${escapeHtml(t.client_reference)}</strong><span>${escapeHtml(t.service_type)} · ${escapeHtml(t.status)}</span></div><div><button class="text-button" data-admin-action="recheck" data-reference="${escapeHtml(t.client_reference)}">Re-check</button><button class="text-button" data-admin-action="refund" data-reference="${escapeHtml(t.client_reference)}">Refund</button></div></div>`).join('')}</div>` : '<div class="empty-state"><strong>No pending or failed transactions</strong></div>'}</section><section class="section"><div class="section-heading"><div><h2>Pricing rules</h2><p>Margins from live pricing rules.</p></div></div>${pricing}<div class="admin-toolbar"><button class="button button-dark" data-admin-action="refresh-catalogue">Refresh catalogue</button></div></section><section class="section"><div class="section-heading"><div><h2>Announcements</h2><p>Published notices from Supabase.</p></div></div>${announcements}</section><section class="section"><div class="section-heading"><div><h2>Support settings</h2><p>Customer support contact.</p></div></div><div class="notice">${escapeHtml(support.support_email || supportEmail)}${support.whatsapp_url ? ` · <a href="${escapeHtml(support.whatsapp_url)}" target="_blank" rel="noreferrer">WhatsApp</a>` : ''}</div></section>`;
 }
 
 async function handleAdminAction(target) {
   const action = target.dataset.adminAction;
   try {
-    if (action === 'recheck') await invokeFunction('recheck-transaction', { reference: target.dataset.reference });
+    if (action === 'recheck') { await invokeFunction('recheck-transaction', { reference: target.dataset.reference }); showToast('Transaction re-checked.'); }
+    if (action === 'recheck-all-pending') { const result = await invokeFunction('recheck-transaction', {}); const counts = result?.counts || result; showToast(`Pending re-check complete: ${typeof counts === 'object' ? Object.entries(counts).map(([key, value]) => `${key}: ${value}`).join(', ') : counts || 'done'}`); }
     if (action === 'refund') await invokeFunction('admin-refund', { reference: target.dataset.reference, reason: 'Admin-approved refund' });
     if (action === 'mark-failed') { const { error } = await supabaseClient.from('transactions').update({ status: 'failed', failure_reason: 'Marked failed by admin' }).eq('id', target.dataset.id); if (error) throw error; }
     if (action === 'refresh-catalogue' || action === 'sync-prices') {
@@ -557,6 +575,45 @@ async function handleAdminAction(target) {
 }
 
 function navigate(path) { closeDrawer(); closeModal(); window.history.pushState({}, '', path); state.route = path; render(); if (path === '/admin') loadAdminData(); if (path === '/airtime' || path === '/data') loadCatalogue().then(() => { if (state.route === path) render(); }); }
+function pinErrorCode(error) {
+  const message = String(error?.message || error || '');
+  const body = error?.context?.body;
+  return String(error?.code || body?.code || body?.error_code || message.match(/PIN_[A-Z_]+/)?.[0] || '');
+}
+function clearPinState() { state.pin.pendingPurchase = null; state.pin.value = ''; }
+function showCreatePin(change = Boolean(state.pin.hasPin)) {
+  const current = change ? '<div class="field"><label for="current-pin">Current PIN</label><input id="current-pin" type="password" inputmode="numeric" maxlength="4" pattern="\\d{4}" required /></div>' : '';
+  openModal({ kicker: 'SECURITY', title: change ? 'Change transaction PIN' : 'Create transaction PIN', intro: change ? 'Enter your current PIN, then choose a new 4-digit PIN.' : 'Create a 4-digit PIN to verify wallet transactions.', body: `<form class="modal-form" id="transaction-pin-form" data-change="${change}">${current}<div class="field"><label for="new-pin">New PIN</label><input id="new-pin" type="password" inputmode="numeric" maxlength="4" pattern="\\d{4}" required /></div><div class="field"><label for="confirm-pin">Confirm new PIN</label><input id="confirm-pin" type="password" inputmode="numeric" maxlength="4" pattern="\\d{4}" required /></div><div class="modal-actions"><button class="button button-dark" type="submit">${change ? 'Change PIN' : 'Create PIN'} <span>↗</span></button></div></form>` });
+}
+function showPinEntry(pending) {
+  state.pin.pendingPurchase = pending; state.pin.value = '';
+  const keys = ['1','2','3','4','5','6','7','8','9','⌫','0',''];
+  openModal({ kicker: 'SECURITY CHECK', title: 'Enter your PIN', intro: 'Enter your pin to verify your transaction', body: `<div class="pin-entry"><div class="pin-boxes" aria-label="Transaction PIN">${[0,1,2,3].map((i) => `<span class="pin-box" data-pin-box="${i}"></span>`).join('')}</div><div class="pin-keypad">${keys.map((key) => key ? `<button class="pin-key" type="button" data-action="pin-key" data-key="${key}">${key}</button>` : '<span></span>').join('')}</div><button class="button button-dark pin-proceed" type="button" data-action="pin-proceed" disabled>Proceed</button></div>` });
+  $('.modal')?.classList.add('bottom-sheet');
+}
+function updatePinBoxes() {
+  $$('.pin-box').forEach((box, index) => { box.textContent = state.pin.value[index] ? '•' : ''; box.classList.toggle('filled', Boolean(state.pin.value[index])); });
+  const proceed = $('.pin-proceed'); if (proceed) proceed.disabled = state.pin.value.length !== 4;
+}
+async function submitWalletPurchase(pending, pin) {
+  try {
+    const result = await invokeFunction('create-purchase', { product_id: pending.product.id, parameters: pending.parameters, pin });
+    clearPinState(); await loadUserData(); render(); closeModal(); showReceipt(result, pending.amount, pending.context);
+  } catch (error) {
+    const code = pinErrorCode(error);
+    if (code === 'PIN_WRONG') { state.pin.value = ''; updatePinBoxes(); showToast(error.message || 'That PIN is incorrect.'); return; }
+    if (code === 'PIN_NOT_SET') { state.pin.hasPin = false; showCreatePin(false); return; }
+    if (code === 'PIN_LOCKED') { showToast(error.message || 'Your transaction PIN is locked.'); return; }
+    throw error;
+  }
+}
+async function beginWalletPurchase(pending) {
+  if (state.pin.hasPin === null) await loadTransactionPinStatus();
+  if (state.pin.hasPin === false) return showCreatePin(false);
+  if (state.pin.hasPin === true) return showPinEntry(pending);
+  throw new Error('Transaction PIN status could not be checked. Please try again.');
+}
+
 async function handleSubmit(form) {
   if (form.id === 'auth-form') {
     const email = $('#auth-email').value.trim(); const password = $('#auth-password').value; const signup = form.dataset.mode === 'signup';
@@ -564,6 +621,15 @@ async function handleSubmit(form) {
     if (result.error) throw result.error; await syncSession(); closeModal(); showToast(signup ? 'Account created. Check your email if confirmation is enabled.' : 'You are signed in.'); return;
   }
   if (form.id === 'profile-form') { await saveProfile(form); return; }
+  if (form.id === 'transaction-pin-form') {
+    const newPin = $('#new-pin', form).value; const confirmPin = $('#confirm-pin', form).value; const currentPin = $('#current-pin', form)?.value || '';
+    if (!/^\d{4}$/.test(newPin) || newPin !== confirmPin) throw new Error('Enter the same 4-digit PIN twice.');
+    const result = await invokeFunction('transaction-pin', { action: 'set', pin: newPin, ...(form.dataset.change === 'true' ? { current_pin: currentPin } : {}) });
+    if (result?.has_pin === false) throw new Error('The transaction PIN was not saved.');
+    state.pin.hasPin = true; const pending = state.pin.pendingPurchase; state.pin.pendingPurchase = null; closeModal(); showToast(form.dataset.change === 'true' ? 'Transaction PIN changed.' : 'Transaction PIN created.');
+    if (pending) showPinEntry(pending);
+    return;
+  }
   if (form.id === 'guest-receipt-form') {
     const reference = $('#receipt-reference', form).value.trim(); const email = $('#receipt-email', form).value.trim();
     const result = await fetchGuestReceipt(reference, email);
@@ -582,7 +648,7 @@ async function handleSubmit(form) {
     if (kind === 'airtime' && amount < 50) throw new Error('Airtime amount must be at least ₦50.');
     if (kind === 'electricity' && (parameters.amount < 500 || parameters.amount > 100000)) throw new Error('Electricity amount must be between ₦500 and ₦100,000.');
     const context = receiptContextFromForm(form, kind, product);
-    if (state.user) { const result = await invokeFunction('create-purchase', { product_id: product.id, parameters }); await loadUserData(); render(); closeModal(); showReceipt(result, amount, context); return; }
+    if (state.user) { await beginWalletPurchase({ product, parameters, amount, context }); return; }
     const email = $('#email', form).value.trim(); const pending = { product_id: product.id, kind, type, amount, email, parameters, context, tx_ref: `PUD_${new Date().getFullYear()}_${randomPart()}` }; saveGuestReceiptContext(pending.tx_ref, context); localStorage.setItem('pudata_pending_guest_purchase', JSON.stringify(pending)); closeModal();
     launchFlutterwave({ amount, txRef: pending.tx_ref, email, onSuccess: async (response) => { if (!['successful', 'completed'].includes(response?.status)) return showToast('Flutterwave did not confirm this payment.'); try { await completeGuestPurchase(pending); } catch { showToast(`Fulfilment needs a retry with ${pending.tx_ref}.`); } } });
   }
@@ -603,6 +669,9 @@ function handleAction(action, target) {
   if (action === 'refresh-wallet') loadUserData().then(render);
   if (action === 'guest-receipt-lookup') showGuestReceiptLookup();
   if (action === 'remove-avatar') removeAvatar().catch((error) => showToast(error.message));
+  if (action === 'transaction-pin') showCreatePin();
+  if (action === 'pin-key') { if (target.dataset.key === '⌫') state.pin.value = state.pin.value.slice(0, -1); else if (state.pin.value.length < 4) state.pin.value += target.dataset.key; updatePinBoxes(); }
+  if (action === 'pin-proceed') { const pending = state.pin.pendingPurchase; if (pending && state.pin.value.length === 4) submitWalletPurchase(pending, state.pin.value).catch((error) => showToast(error.message || 'Payment failed.')); }
   if (action === 'retry-guest') { const pending = JSON.parse(localStorage.getItem('pudata_pending_guest_purchase') || 'null'); if (pending) { closeModal(); launchFlutterwave({ amount: pending.amount, txRef: pending.tx_ref, email: pending.email, onSuccess: async (response) => { if (['successful', 'completed'].includes(response?.status)) { try { await completeGuestPurchase(pending); } catch { showToast(`Fulfilment needs a retry with ${pending.tx_ref}.`); } } } }); } }
 }
 
@@ -631,10 +700,10 @@ document.addEventListener('change', (event) => {
 document.addEventListener('input', (event) => {
   if (event.target.dataset.phoneInput) {
     const form = event.target.closest('#purchase-form');
-    const digits = event.target.value.replace(/\D/g, '');
-    if (event.target.value !== digits) event.target.value = digits;
+    const normalized = normalizePhone(event.target.value);
+    if (event.target.value !== normalized && (event.target.value.includes('+') || event.target.value.includes(' ') || event.target.value.includes('-') || normalized.length === 11)) event.target.value = normalized;
     if (form) delete form.dataset.manualNetwork;
-    const detected = detectNetwork(event.target.value);
+    const detected = isValidPhone(event.target.value) ? detectNetwork(event.target.value) : '';
     if (form) updateNetworkSelection(form, detected);
     if (form?.dataset.kind === 'data') renderDataPlans(form);
     if (form) updateNetworkHelp(form);
