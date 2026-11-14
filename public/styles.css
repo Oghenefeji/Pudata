@@ -272,3 +272,21 @@ h1, h2, h3, .wallet-balance, .brand-name { font-family: Manrope, Arial, sans-ser
 .network-menu-item.is-unavailable { color: var(--muted); cursor: not-allowed; background: #fafafa; }
 .network-menu-item.is-unavailable .network-logo { opacity: .55; }
 .insufficient-funds-actions .button { min-width: 0; }
+
+.password-input-wrap { position: relative; display: flex; align-items: center; }
+.password-input-wrap input { padding-right: 48px; }
+.password-toggle { width: 34px; height: 34px; position: absolute; right: 8px; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 15px; }
+.password-toggle:hover, .password-toggle:focus-visible { background: var(--soft); color: var(--ink); }
+.pin-visibility-row { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.pin-visibility-row .pin-boxes { margin-left: 42px; }
+.pin-visibility-toggle { position: static; flex: 0 0 auto; }
+.install-app-block { display: grid; gap: 5px; border-bottom: 1px solid var(--line); padding: 14px 0; }
+.install-app-block button, .drawer-links > button[data-action="install-app"] { border: 0; background: transparent; color: var(--ink); padding: 0; text-align: left; font-weight: 800; display: flex; gap: 12px; align-items: center; }
+.install-app-block button span, .drawer-links > button[data-action="install-app"] span { width: 27px; height: 27px; border-radius: 50%; background: var(--soft); display: grid; place-items: center; }
+.install-app-block small { color: var(--muted); font-size: 11px; margin-left: 39px; }
+
+.password-toggle svg { width: 18px; height: 18px; }
+.profile-password-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; padding: 17px; border: 1px solid var(--line); border-radius: 17px; background: #fafafa; }
+.profile-password-card strong, .profile-password-card span { display: block; }
+.profile-password-card span { color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 5px; }
+@media (max-width: 560px) { .profile-password-card { align-items: flex-start; flex-direction: column; } .profile-password-card .button { width: 100%; } }

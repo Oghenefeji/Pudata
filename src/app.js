@@ -26,7 +26,8 @@ const state = {
   dataValidity: 'Daily',
   dataConfirmProductId: '',
   route: window.location.pathname || '/',
-  pin: { hasPin: null, pendingPurchase: null, value: '', statusError: '' },
+  pin: { hasPin: null, pendingPurchase: null, value: '', statusError: '', visible: false },
+  installPrompt: null,
   admin: {
     loading: false, users: [], transactions: [], statsTransactions: [], pricing: [], announcements: [], support: null,
     products: [], costs: {}, userCount: 0, error: '', statusFilter: '', referenceFilter: '', productSearch: '', productService: '', productPage: 1,
@@ -46,6 +47,22 @@ const serviceCards = [
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+function isStandaloneApp() { return window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true; }
+function isIosDevice() { return /iphone|ipad|ipod/i.test(window.navigator.userAgent) && !window.MSStream; }
+function installAppMarkup() {
+  if (isStandaloneApp()) return '';
+  if (isIosDevice()) return '<div class="install-app-block"><button type="button" data-action="install-app"><span>＋</span> Install app</button><small>Tap Share, then Add to Home Screen</small></div>';
+  return state.installPrompt ? '<button type="button" data-action="install-app"><span>＋</span> Install app</button>' : '';
+}
+function registerPwa() {
+  if (!('serviceWorker' in navigator)) return;
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}), { once: true });
+}
+function setupInstallPrompt() {
+  window.addEventListener('beforeinstallprompt', (event) => { event.preventDefault(); state.installPrompt = event; updateChrome(); });
+  window.addEventListener('appinstalled', () => { state.installPrompt = null; updateChrome(); });
+}
+
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[c]));
 const money = (value) => `₦${Number(value || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}`;
 const dateText = (value) => value ? new Date(value).toLocaleString('en-NG', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
@@ -209,12 +226,12 @@ function renderLegal(kind) {
 function renderProfile() {
   if (!state.user) return renderDashboard();
   const pinAction = state.pin.hasPin ? 'Change PIN' : 'Create PIN';
-  return `<section class="profile-page"><button class="text-button" type="button" data-route="/">← Back home</button><div class="profile-hero"><div class="profile-avatar-large">${avatarMarkup('large')}</div><div><div class="date-line">Profile</div><h1>${escapeHtml(firstName())}</h1><p>${escapeHtml(state.user.email)}</p></div></div><form class="modal-form profile-form" id="profile-form"><div class="field"><label for="profile-name">Full name</label><input id="profile-name" value="${escapeHtml(state.profile?.full_name || '')}" required /></div><div class="field"><label for="profile-phone">Phone number</label><input id="profile-phone" inputmode="tel" value="${escapeHtml(state.profile?.phone || '')}" /></div><div class="field"><label for="avatar-file">Profile picture</label><input id="avatar-file" type="file" accept="image/jpeg,image/png,image/webp" /><small class="field-help">JPG, PNG or WEBP. Maximum 2MB.</small></div><div class="profile-picture-actions">${state.profile?.avatar_url ? '<button class="button button-outline" type="button" data-action="remove-avatar">Remove picture</button>' : ''}<button class="button button-dark" type="submit">Save profile <span>↗</span></button></div></form><div class="profile-pin-card"><div><strong>Transaction PIN</strong><span>${state.pin.hasPin ? 'Your 4-digit PIN protects wallet payments.' : 'Create a 4-digit PIN before your first wallet payment.'}</span></div><button class="button button-outline" type="button" data-action="transaction-pin">${pinAction}</button></div><p class="profile-support">Need your own VTU website like this? <a href="${escapeHtml(runtimeConfig.supportWhatsappUrl)}" target="_blank" rel="noreferrer">Contact +2348079374019 on WhatsApp.</a></p><div class="profile-danger"><button class="button button-outline" type="button" data-action="logout">Log out</button></div></section>`;
+  return `<section class="profile-page"><button class="text-button" type="button" data-route="/">← Back home</button><div class="profile-hero"><div class="profile-avatar-large">${avatarMarkup('large')}</div><div><div class="date-line">Profile</div><h1>${escapeHtml(firstName())}</h1><p>${escapeHtml(state.user.email)}</p></div></div><form class="modal-form profile-form" id="profile-form"><div class="field"><label for="profile-name">Full name</label><input id="profile-name" value="${escapeHtml(state.profile?.full_name || '')}" required /></div><div class="field"><label for="profile-phone">Phone number</label><input id="profile-phone" inputmode="tel" value="${escapeHtml(state.profile?.phone || '')}" /></div><div class="field"><label for="avatar-file">Profile picture</label><input id="avatar-file" type="file" accept="image/jpeg,image/png,image/webp" /><small class="field-help">JPG, PNG or WEBP. Maximum 2MB.</small></div><div class="profile-picture-actions">${state.profile?.avatar_url ? '<button class="button button-outline" type="button" data-action="remove-avatar">Remove picture</button>' : ''}<button class="button button-dark" type="submit">Save profile <span>↗</span></button></div></form><div class="profile-pin-card"><div><strong>Transaction PIN</strong><span>${state.pin.hasPin ? 'Your 4-digit PIN protects wallet payments.' : 'Create a 4-digit PIN before your first wallet payment.'}</span></div><button class="button button-outline" type="button" data-action="transaction-pin">${pinAction}</button></div><div class="profile-password-card"><div><strong>Password</strong><span>Keep your account password up to date.</span></div><button class="button button-outline" type="button" data-action="change-password">Change password</button></div><p class="profile-support">Need your own VTU website like this? <a href="${escapeHtml(runtimeConfig.supportWhatsappUrl)}" target="_blank" rel="noreferrer">Contact +2348079374019 on WhatsApp.</a></p><div class="profile-danger"><button class="button button-outline" type="button" data-action="logout">Log out</button></div></section>`;
 }
 function updateChrome() {
   $('[data-avatar]').innerHTML = avatarMarkup();
   const drawer = $('#drawer-links');
-  drawer.innerHTML = `<button type="button" data-action="profile"><span>◎</span> Profile</button><button type="button" data-action="help"><span>?</span> Help centre</button><a class="drawer-support-link" href="${escapeHtml(runtimeConfig.supportWhatsappUrl)}" target="_blank" rel="noreferrer"><span>↗</span> Chat on WhatsApp</a><button type="button" data-route="/terms"><span>§</span> Terms of Service</button><button type="button" data-route="/privacy"><span>⌁</span> Privacy Policy</button>${state.isAdmin ? '<button type="button" data-route="/admin"><span>⌂</span> Admin</button>' : ''}${state.user ? '<button type="button" data-action="logout"><span>↪</span> Log out</button>' : ''}`;
+  drawer.innerHTML = `<button type="button" data-action="profile"><span>◎</span> Profile</button><button type="button" data-action="help"><span>?</span> Help centre</button>${installAppMarkup()}<a class="drawer-support-link" href="${escapeHtml(runtimeConfig.supportWhatsappUrl)}" target="_blank" rel="noreferrer"><span>↗</span> Chat on WhatsApp</a><button type="button" data-route="/terms"><span>§</span> Terms of Service</button><button type="button" data-route="/privacy"><span>⌁</span> Privacy Policy</button>${state.isAdmin ? '<button type="button" data-route="/admin"><span>⌂</span> Admin</button>' : ''}${state.user ? '<button type="button" data-action="logout"><span>↪</span> Log out</button>' : ''}`;
   $$('.bottom-nav-item').forEach((item) => item.classList.toggle('active', item.dataset.route === state.route || (state.route === '/admin' && item.dataset.action === 'more')));
 }
 function render() {
@@ -234,7 +251,7 @@ function render() {
 
 function showAuth(mode = 'login') {
   const signup = mode === 'signup';
-  openModal({ kicker: 'ACCOUNT', title: signup ? 'Create your account' : 'Log in to pudata', intro: signup ? 'Save your wallet, receipts, and payment history in one place.' : 'Use your pudata account to fund a wallet and see your history.', body: `<form class="modal-form" id="auth-form" data-mode="${signup ? 'signup' : 'login'}"><div class="field"><label for="auth-email">Email address</label><input id="auth-email" type="email" required /></div>${signup ? '<div class="field"><label for="auth-name">Full name</label><input id="auth-name" type="text" required /></div>' : ''}<div class="field"><label for="auth-password">Password</label><input id="auth-password" type="password" minlength="6" required /></div>${signup ? '<p class="modal-quiet">By signing up you agree to the Terms of Service and Privacy Policy.</p>' : ''}<div class="modal-actions"><button class="button button-dark" type="submit">${signup ? 'Sign up' : 'Log in'} <span>↗</span></button></div><button class="text-button" type="button" data-action="${signup ? 'login' : 'signup'}">${signup ? 'Already have an account? Log in' : 'Create an account'}</button></form>` });
+  openModal({ kicker: 'ACCOUNT', title: signup ? 'Create your account' : 'Log in to pudata', intro: signup ? 'Save your wallet, receipts, and payment history in one place.' : 'Use your pudata account to fund a wallet and see your history.', body: `<form class="modal-form" id="auth-form" data-mode="${signup ? 'signup' : 'login'}"><div class="field"><label for="auth-email">Email address</label><input id="auth-email" type="email" required /></div>${signup ? '<div class="field"><label for="auth-name">Full name</label><input id="auth-name" type="text" required /></div>' : ''}<div class="field"><label for="auth-password">Password</label><div class="password-input-wrap"><input id="auth-password" type="password" minlength="6" required /><button class="password-toggle" type="button" data-action="toggle-password" aria-label="Show password" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></button></div></div>${signup ? '<p class="modal-quiet">By signing up you agree to the Terms of Service and Privacy Policy.</p>' : ''}<div class="modal-actions"><button class="button button-dark" type="submit">${signup ? 'Sign up' : 'Log in'} <span>↗</span></button></div><button class="text-button" type="button" data-action="${signup ? 'login' : 'signup'}">${signup ? 'Already have an account? Log in' : 'Create an account'}</button></form>` });
 }
 function showHelp() {
   const whatsapp = `<a class="button button-dark" href="${escapeHtml(runtimeConfig.supportWhatsappUrl)}" target="_blank" rel="noreferrer">Chat on WhatsApp ↗</a>`;
@@ -261,7 +278,7 @@ function renderReceiptResult(result, fallbackAmount = 0) {
   const serviceType = result.service || result.service_type || '';
   const service = serviceDisplayName(serviceType);
   const identifierLabel = serviceType === 'tv' ? 'Smart card' : serviceType === 'electricity' ? 'Meter number' : 'Phone number';
-  const when = result.created_at || result.updated_at || result.date;
+  const when = result.created_at || result.transaction?.created_at || result.data?.created_at || result.updated_at || result.date || result.purchase_date;
   const pendingMessage = status === 'pending' ? '<div class="pending-message"><strong>Processing</strong><br />Do not pay again. This screen updates when it completes.</div>' : '';
   const failedMessage = status !== 'pending' && status !== 'success' ? `<div class="failed-message"><strong>Payment failed</strong><br />${escapeHtml(result.failure_reason || 'This payment could not be completed.')} ${state.user ? 'Your wallet was refunded.' : ''}</div>` : '';
   return `<div class="receipt">${status === 'success' ? '<div class="receipt-success-icon" aria-hidden="true">✓</div>' : ''}${pendingMessage}${failedMessage}<div class="receipt-rows">${serviceType ? `<div class="receipt-row"><span>Recharge type</span><strong>${escapeHtml(service)}</strong></div>` : ''}${result.number ? `<div class="receipt-row"><span>${identifierLabel}</span><strong>${escapeHtml(result.number)}</strong></div>` : ''}${result.plan ? `<div class="receipt-row"><span>Plan</span><strong>${escapeHtml(result.plan)}</strong></div>` : ''}<div class="receipt-row"><span>Amount</span><strong>${money(result.amount ?? fallbackAmount)}</strong></div><div class="receipt-row"><span>Date</span><strong>${escapeHtml(when ? new Date(when).toLocaleString('en-NG', { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '—')}</strong></div><div class="receipt-row"><span>Reference</span><strong>${escapeHtml(result.reference || result.client_reference || '—')}</strong></div></div>${receiptDetailsMarkup(details)}<button class="button button-dark receipt-close-button" type="button" data-action="close-modal">Close</button></div>`;
@@ -275,7 +292,7 @@ function stopPaymentWatch() {
 function receiptStatusTitle(status, service = '') { return status === 'success' ? (['airtime', 'data'].includes(String(service).toLowerCase()) ? 'Recharge successful' : 'Payment successful') : status === 'pending' ? 'Processing' : 'Payment failed'; }
 function showReceipt(result, fallbackAmount = 0, context = {}) {
   stopPaymentWatch();
-  const merged = { ...context, ...result, service: result.service || context.service, network: result.network || context.network, number: result.number || context.number };
+  const merged = { ...context, ...result, service: result.service || context.service, network: result.network || context.network, number: result.number || context.number, purchase_date: result.created_at || result.transaction?.created_at || context.purchase_date || new Date().toISOString() };
   openModal({ kicker: 'RECEIPT', title: receiptStatusTitle(merged.status, merged.service || merged.service_type), intro: merged.status === 'pending' ? '' : 'Keep this reference for support or receipt lookup.', body: renderReceiptResult(merged, fallbackAmount) });
   if (merged.status === 'pending' && merged.reference) {
     if (merged.guestEmail) startGuestPaymentWatch(merged.reference, merged.guestEmail, fallbackAmount, context);
@@ -606,24 +623,30 @@ function showInsufficientFunds(amount) {
   $('.modal')?.classList.add('bottom-sheet');
 }
 function isInsufficientFundsError(error) { return Number(error?.status) === 402 || String(error?.message || '').toLowerCase().includes('insufficient wallet balance'); }
+function showChangePassword() {
+  const eye = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>';
+  const field = (id, label) => `<div class="field"><label for="${id}">${label}</label><div class="password-input-wrap"><input id="${id}" type="password" minlength="6" required /> <button class="password-toggle" type="button" data-action="toggle-password" aria-label="Show password" aria-pressed="false">${eye}</button></div></div>`;
+  openModal({ kicker: 'ACCOUNT SECURITY', title: 'Change password', intro: 'Choose a new password for your pudata account.', body: `<form class="modal-form" id="change-password-form">${field('new-password', 'New password')}${field('confirm-password', 'Confirm new password')}<div class="modal-actions"><button class="button button-dark" type="submit">Change password <span>↗</span></button></div></form>` });
+}
 function showCreatePin(change = Boolean(state.pin.hasPin)) {
-  const current = change ? '<div class="field"><label for="current-pin">Current PIN</label><input id="current-pin" type="password" inputmode="numeric" maxlength="4" pattern="\\d{4}" required /></div>' : '';
-  openModal({ kicker: 'SECURITY', title: change ? 'Change transaction PIN' : 'Create transaction PIN', intro: change ? 'Enter your current PIN, then choose a new 4-digit PIN.' : 'Create a 4-digit PIN to verify wallet transactions.', body: `<form class="modal-form" id="transaction-pin-form" data-change="${change}">${current}<div class="field"><label for="new-pin">New PIN</label><input id="new-pin" type="password" inputmode="numeric" maxlength="4" pattern="\\d{4}" required /></div><div class="field"><label for="confirm-pin">Confirm new PIN</label><input id="confirm-pin" type="password" inputmode="numeric" maxlength="4" pattern="\\d{4}" required /></div><div class="modal-actions"><button class="button button-dark" type="submit">${change ? 'Change PIN' : 'Create PIN'} <span>↗</span></button></div></form>` });
+  const passwordToggle = (id) => `<button class="password-toggle" type="button" data-action="toggle-password" aria-label="Show password" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></button>`;
+  const current = change ? `<div class="field"><label for="current-pin">Current PIN</label><div class="password-input-wrap"><input id="current-pin" type="password" inputmode="numeric" maxlength="4" pattern="\\d{4}" required />${passwordToggle('current-pin')}</div></div>` : '';
+  openModal({ kicker: 'SECURITY', title: change ? 'Change transaction PIN' : 'Create transaction PIN', intro: change ? 'Enter your current PIN, then choose a new 4-digit PIN.' : 'Create a 4-digit PIN to verify wallet transactions.', body: `<form class="modal-form" id="transaction-pin-form" data-change="${change}">${current}<div class="field"><label for="new-pin">New PIN</label><div class="password-input-wrap"><input id="new-pin" type="password" inputmode="numeric" maxlength="4" pattern="\\d{4}" required />${passwordToggle('new-pin')}</div></div><div class="field"><label for="confirm-pin">Confirm new PIN</label><div class="password-input-wrap"><input id="confirm-pin" type="password" inputmode="numeric" maxlength="4" pattern="\\d{4}" required />${passwordToggle('confirm-pin')}</div></div><div class="modal-actions"><button class="button button-dark" type="submit">${change ? 'Change PIN' : 'Create PIN'} <span>↗</span></button></div></form>` });
 }
 function showPinEntry(pending) {
-  state.pin.pendingPurchase = pending; state.pin.value = '';
+  state.pin.pendingPurchase = pending; state.pin.value = ''; state.pin.visible = false;
   const keys = ['1','2','3','4','5','6','7','8','9','⌫','0',''];
-  openModal({ kicker: 'SECURITY CHECK', title: 'Enter your PIN', intro: 'Enter your pin to verify your transaction', body: `<div class="pin-entry"><div class="pin-boxes" aria-label="Transaction PIN">${[0,1,2,3].map((i) => `<span class="pin-box" data-pin-box="${i}"></span>`).join('')}</div><div class="pin-keypad">${keys.map((key) => key ? `<button class="pin-key" type="button" data-action="pin-key" data-key="${key}">${key}</button>` : '<span></span>').join('')}</div><button class="button button-dark pin-proceed" type="button" data-action="pin-proceed" disabled>Proceed</button></div>` });
+  openModal({ kicker: 'SECURITY CHECK', title: 'Enter your PIN', intro: 'Enter your pin to verify your transaction', body: `<div class="pin-entry"><div class="pin-visibility-row"><div class="pin-boxes" aria-label="Transaction PIN">${[0,1,2,3].map((i) => `<span class="pin-box" data-pin-box="${i}"></span>`).join('')}</div><button class="password-toggle pin-visibility-toggle" type="button" data-action="toggle-pin-visibility" aria-label="Show password" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></button></div><div class="pin-keypad">${keys.map((key) => key ? `<button class="pin-key" type="button" data-action="pin-key" data-key="${key}">${key}</button>` : '<span></span>').join('')}</div><button class="button button-dark pin-proceed" type="button" data-action="pin-proceed" disabled>Proceed</button></div>` });
   $('.modal')?.classList.add('bottom-sheet');
 }
 function updatePinBoxes() {
-  $$('.pin-box').forEach((box, index) => { box.textContent = state.pin.value[index] ? '•' : ''; box.classList.toggle('filled', Boolean(state.pin.value[index])); });
+  $$('.pin-box').forEach((box, index) => { box.textContent = state.pin.value[index] ? (state.pin.visible ? state.pin.value[index] : '•') : ''; box.classList.toggle('filled', Boolean(state.pin.value[index])); });
   const proceed = $('.pin-proceed'); if (proceed) proceed.disabled = state.pin.value.length !== 4;
 }
 async function submitWalletPurchase(pending, pin) {
   try {
     const result = await invokeFunction('create-purchase', { product_id: pending.product.id, parameters: pending.parameters, pin });
-    clearPinState(); await loadUserData(); render(); closeModal(); showReceipt(result, pending.amount, pending.context);
+    clearPinState(); await loadUserData(); const receiptReference = result.reference || result.client_reference; const transaction = receiptReference ? state.transactions.find((item) => item.client_reference === receiptReference) : null; render(); closeModal(); showReceipt({ ...result, created_at: result.created_at || transaction?.created_at }, pending.amount, pending.context);
   } catch (error) {
     if (isInsufficientFundsError(error)) { clearPinState(); showInsufficientFunds(pending.amount); return; }
     const code = pinErrorCode(error);
@@ -649,6 +672,13 @@ async function handleSubmit(form) {
     if (result.error) throw result.error; await syncSession(); closeModal(); showToast(signup ? 'Account created. Check your email if confirmation is enabled.' : 'You are signed in.'); return;
   }
   if (form.id === 'profile-form') { await saveProfile(form); return; }
+  if (form.id === 'change-password-form') {
+    const password = $('#new-password', form).value; const confirm = $('#confirm-password', form).value;
+    if (password.length < 6 || password !== confirm) throw new Error('Enter the same password twice (at least 6 characters).');
+    const result = await supabaseClient.auth.updateUser({ password });
+    if (result.error) throw result.error;
+    closeModal(); showToast('Password changed.'); return;
+  }
   if (form.id === 'transaction-pin-form') {
     const newPin = $('#new-pin', form).value; const confirmPin = $('#confirm-pin', form).value; const currentPin = $('#current-pin', form)?.value || '';
     if (!/^\d{4}$/.test(newPin) || newPin !== confirmPin) throw new Error('Enter the same 4-digit PIN twice.');
@@ -697,6 +727,16 @@ function handleAction(action, target) {
   if (action === 'refresh-wallet') loadUserData().then(render);
   if (action === 'guest-receipt-lookup') showGuestReceiptLookup();
   if (action === 'remove-avatar') removeAvatar().catch((error) => showToast(error.message));
+  if (action === 'toggle-password') {
+    const input = target.closest('.password-input-wrap')?.querySelector('input');
+    if (input) { const visible = input.type === 'text'; input.type = visible ? 'password' : 'text'; target.setAttribute('aria-label', visible ? 'Show password' : 'Hide password'); target.setAttribute('aria-pressed', String(!visible)); }
+  }
+  if (action === 'toggle-pin-visibility') { state.pin.visible = !state.pin.visible; target.setAttribute('aria-label', state.pin.visible ? 'Hide password' : 'Show password'); target.setAttribute('aria-pressed', String(state.pin.visible)); updatePinBoxes(); }
+  if (action === 'install-app') {
+    if (isIosDevice()) return showToast('Tap Share, then Add to Home Screen');
+    if (state.installPrompt) { const prompt = state.installPrompt; state.installPrompt = null; prompt.prompt(); prompt.userChoice.finally(() => updateChrome()); }
+  }
+  if (action === 'change-password') showChangePassword();
   if (action === 'transaction-pin') showCreatePin();
   if (action === 'pin-key') { if (target.dataset.key === '⌫') state.pin.value = state.pin.value.slice(0, -1); else if (state.pin.value.length < 4) state.pin.value += target.dataset.key; updatePinBoxes(); }
   if (action === 'pin-proceed') { const pending = state.pin.pendingPurchase; if (pending && state.pin.value.length === 4) submitWalletPurchase(pending, state.pin.value).catch((error) => showToast(error.message || 'Payment failed.')); }
@@ -755,4 +795,6 @@ document.addEventListener('input', (event) => {
   if (event.target.id === 'admin-product-search') { state.admin.productSearch = event.target.value; state.admin.productPage = 1; render(); const input = $('#admin-product-search'); if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); } }
 });
 window.addEventListener('popstate', () => { state.route = window.location.pathname; render(); if (state.route === '/admin') loadAdminData(); if (state.route === '/airtime' || state.route === '/data') loadCatalogue().then(render); });
+setupInstallPrompt();
+registerPwa();
 syncSession();
