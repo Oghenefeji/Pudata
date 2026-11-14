@@ -26,7 +26,7 @@ const state = {
   dataValidity: 'Daily',
   dataConfirmProductId: '',
   route: window.location.pathname || '/',
-  pin: { hasPin: null, pendingPurchase: null, value: '' },
+  pin: { hasPin: null, pendingPurchase: null, value: '', statusError: '' },
   admin: {
     loading: false, users: [], transactions: [], statsTransactions: [], pricing: [], announcements: [], support: null,
     products: [], costs: {}, userCount: 0, error: '', statusFilter: '', referenceFilter: '', productSearch: '', productService: '', productPage: 1,
@@ -53,6 +53,8 @@ const firstName = () => (state.profile?.full_name || state.user?.email?.split('@
 const randomPart = () => crypto.randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
 const metadataValue = (product, keys) => keys.map((key) => product.metadata?.[key]).find(Boolean) || '';
 let activePaymentWatch = null;
+let phonePollTimer = null;
+const NETWORK_ORDER = ['MTN', 'Airtel', 'Glo', '9mobile'];
 
 function showToast(message) {
   const toast = $('#toast');
@@ -79,15 +81,21 @@ function closeDrawer() { document.body.classList.remove('drawer-open'); $('#draw
 async function invokeFunction(name, body) {
   if (!supabaseClient) throw new Error('Supabase is not configured.');
   const { data, error } = await supabaseClient.functions.invoke(name, { body });
-  if (error) throw error;
-  return data;
+  if (!error) return data;
+  let payload = null;
+  try { payload = await error.context?.json(); } catch { /* Keep the SDK message when the body is unavailable. */ }
+  const enriched = new Error(payload?.error || error.message || 'Request failed.');
+  enriched.code = payload?.code || payload?.error_code || error.code;
+  enriched.status = error.context?.status || payload?.status;
+  enriched.contextPayload = payload;
+  throw enriched;
 }
 
 async function loadCatalogue() {
   if (!supabaseClient) return;
   const [products, categories] = await Promise.all([
     supabaseClient.from('catalogue_products').select('id,service_id,category_id,name,description,product_type,selling_price,active,metadata').order('name'),
-    supabaseClient.from('catalogue_categories').select('id,service_id,name,logo,active').eq('active', true).order('name')
+    supabaseClient.from('catalogue_categories').select('id,service_id,name,logo,active').order('name')
   ]);
   if (!products.error) state.products = products.data || [];
   if (!categories.error) state.categories = categories.data || [];
@@ -109,9 +117,9 @@ async function loadUserData() {
 }
 
 async function loadTransactionPinStatus() {
-  if (!state.user || !supabaseClient) { state.pin.hasPin = null; return; }
-  try { const result = await invokeFunction('transaction-pin', { action: 'status' }); state.pin.hasPin = Boolean(result?.has_pin); }
-  catch { state.pin.hasPin = null; }
+  if (!state.user || !supabaseClient) { state.pin.hasPin = null; state.pin.statusError = ''; return; }
+  try { const result = await invokeFunction('transaction-pin', { action: 'status' }); state.pin.hasPin = Boolean(result?.has_pin); state.pin.statusError = ''; }
+  catch (error) { state.pin.hasPin = null; state.pin.statusError = error.message || 'Transaction PIN status could not be checked.'; }
 }
 async function syncSession() {
   if (!supabaseClient) { render(); return; }
@@ -148,8 +156,19 @@ function isValidPhone(value) { return /^0\d{10}$/.test(normalizePhone(value)); }
 function detectNetwork(value) { const prefix = normalizePhone(value).slice(0, 4); return Object.entries(NETWORK_PREFIXES).find(([, prefixes]) => prefixes.includes(prefix))?.[0] || ''; }
 function normalizeNetwork(value) { return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
 function networkMatches(value, detected) { const actual = normalizeNetwork(value); const wanted = normalizeNetwork(detected); return Boolean(actual && wanted) && (actual === wanted || actual.includes(wanted) || wanted.includes(actual)); }
-function networkChoices(type) { const products = serviceProducts(type); const categoryIds = new Set(products.map((product) => String(product.category_id))); const categoryNames = state.categories.filter((category) => categoryIds.has(String(category.id))).map((category) => category.name); return [...new Set([...categoryNames, ...products.map((product) => productNetwork(product, type))])].filter(Boolean).sort(); }
-function networkCategory(network) { return state.categories.find((category) => networkMatches(category.name, network)); }
+function networkCategory(network) {
+  const categoryIds = new Set(state.products.filter((product) => ['airtime', 'data'].includes(product.product_type)).map((product) => String(product.category_id)));
+  return state.categories.find((category) => categoryIds.has(String(category.id)) && networkMatches(category.name, network)) || state.categories.find((category) => networkMatches(category.name, network));
+}
+function networkChoices(type) {
+  if (!['airtime', 'data'].includes(type)) {
+    const products = serviceProducts(type);
+    return [...new Set(products.map((product) => productNetwork(product, type)))].filter(Boolean).sort();
+  }
+  return NETWORK_ORDER.slice();
+}
+function networkProducts(type, network) { return serviceProducts(type).filter((product) => networkMatches(productNetwork(product, type), network)); }
+function networkAvailable(type, network) { return networkProducts(type, network).length > 0; }
 function networkLogoMarkup(network) { const initial = `<span class="network-logo-fallback">${escapeHtml(String(network || '?').slice(0, 2).toUpperCase())}</span>`; const logo = networkCategory(network)?.logo; return logo ? `<img src="${escapeHtml(logo)}" alt="${escapeHtml(network)} logo" onerror="this.remove()" />${initial}` : initial; }
 function iconSvg(icon) {
   const paths = {
@@ -323,20 +342,20 @@ function showDataConfirm(productId) {
 
 function networkOptions(type, selected = '', includePlaceholder = false) {
   const placeholder = includePlaceholder ? `<option value="">Detect network</option>` : '';
-  return `${placeholder}${networkChoices(type).map((network) => `<option value="${escapeHtml(network)}" ${network === selected ? 'selected' : ''}>${escapeHtml(network)}</option>`).join('')}`;
+  return `${placeholder}${networkChoices(type).map((network) => { const available = networkAvailable(type, network); return `<option value="${escapeHtml(network)}" ${network === selected ? 'selected' : ''} ${available ? '' : 'disabled'}>${escapeHtml(network)}${available ? '' : ' — Unavailable right now'}</option>`; }).join('')}`;
 }
 function productOptions(type, network = '') {
   return serviceProducts(type).filter((product) => !network || productNetwork(product, type) === network).map((product) => `<option value="${escapeHtml(product.id)}" data-price="${Number(product.selling_price)}">${escapeHtml(product.name)}${FIXED_PRICE_TYPES.has(type) ? ` · ${money(product.selling_price)}` : ''}</option>`).join('');
 }
 function phoneNetworkField(type) {
-  return `<div class="field"><label for="phone">Phone number</label><div class="phone-network-field"><button class="network-selector" type="button" data-action="network-menu" title="Choose network"><span id="network-logo" class="network-logo">?</span><span class="network-chevron">⌄</span></button><input id="phone" data-phone-input inputmode="numeric" autocomplete="tel" placeholder="081-000-00000" required /><select id="network" data-role="network" hidden aria-label="Network">${networkOptions(type, '', true)}</select></div><small id="network-help" class="field-help">Your network is detected from the number. Tap the logo to change it if your number was ported.</small></div>`;
+  return `<div class="field"><label for="phone">Phone number</label><div class="phone-network-field"><button class="network-selector" type="button" data-action="network-menu" title="Choose network"><span id="network-logo" class="network-logo">?</span><span class="network-chevron">⌄</span></button><input id="phone" data-phone-input name="pudata-recipient" inputmode="numeric" autocomplete="off" placeholder="081-000-00000" required /><select id="network" data-role="network" hidden aria-label="Network">${networkOptions(type, '', true)}</select></div><small id="network-help" class="field-help">Your network is detected from the number. Tap the logo to change it if your number was ported.</small></div>`;
 }
 function showNetworkMenu(form) {
   const networks = networkChoices(form.dataset.type);
-  openModal({ kicker: 'NETWORK', title: 'Choose network', intro: 'Select a network if your number was ported.', body: `<div class="network-menu">${networks.map((network) => `<button class="network-menu-item" type="button" data-action="choose-network" data-network="${escapeHtml(network)}"><span class="network-logo">${networkLogoMarkup(network)}</span><strong>${escapeHtml(network)}</strong><span>›</span></button>`).join('')}</div>` });
+  openModal({ kicker: 'NETWORK', title: 'Choose network', intro: 'Select a network if your number was ported.', body: `<div class="network-menu">${networks.map((network) => { const available = networkAvailable(form.dataset.type, network); return `<button class="network-menu-item ${available ? '' : 'is-unavailable'}" type="button" data-action="choose-network" data-network="${escapeHtml(network)}" ${available ? '' : 'disabled'}><span class="network-logo">${networkLogoMarkup(network)}</span><strong>${escapeHtml(network)}</strong><span>${available ? '›' : 'Unavailable right now'}</span></button>`; }).join('')}</div>` });
 }
 function updateNetworkHelp(form, manual = false) {
-  const help = $('#network-help', form); const selected = $('#network', form)?.value; const detected = detectNetwork($('#phone', form)?.value);
+  const help = $('#network-help', form); const selected = $('#network', form)?.value; const detected = isValidPhone($('#phone', form)?.value) ? detectNetwork($('#phone', form)?.value) : '';
   if (!help) return;
   help.textContent = manual && detected && selected && !networkMatches(selected, detected) ? `This number looks like ${detected}.` : detected ? `Detected ${detected}. Tap the logo to change it if your number was ported.` : 'Your network is detected from the number. Tap the logo to change it if your number was ported.';
 }
@@ -360,7 +379,7 @@ function updateNetworkSelection(form, network) {
   if (logo) logo.innerHTML = selectedNetwork ? networkLogoMarkup(selectedNetwork) : '?';
   const productSelect = $('#product', form);
   const type = form.dataset.type;
-  const products = selectedNetwork ? serviceProducts(type).filter((product) => networkMatches(productNetwork(product, type), selectedNetwork)) : [];
+  const products = selectedNetwork ? networkProducts(type, selectedNetwork) : [];
   if (form.dataset.kind === 'airtime') {
     const vtu = products.find((product) => /\bvtu\b/i.test(product.name || '')) || products[0];
     if (productSelect) productSelect.value = vtu?.id || '';
@@ -577,10 +596,16 @@ async function handleAdminAction(target) {
 function navigate(path) { closeDrawer(); closeModal(); window.history.pushState({}, '', path); state.route = path; render(); if (path === '/admin') loadAdminData(); if (path === '/airtime' || path === '/data') loadCatalogue().then(() => { if (state.route === path) render(); }); }
 function pinErrorCode(error) {
   const message = String(error?.message || error || '');
-  const body = error?.context?.body;
-  return String(error?.code || body?.code || body?.error_code || message.match(/PIN_[A-Z_]+/)?.[0] || '');
+  const body = error?.contextPayload || {};
+  return String(error?.code || body.code || body.error_code || message.match(/PIN_[A-Z_]+/)?.[0] || '');
 }
 function clearPinState() { state.pin.pendingPurchase = null; state.pin.value = ''; }
+function showInsufficientFunds(amount) {
+  const balance = Number(state.wallet?.balance || 0);
+  openModal({ kicker: 'WALLET', title: 'Insufficient funds', intro: `Your wallet balance is ${money(balance)} and this costs ${money(amount)}`, body: '<div class="modal-actions insufficient-funds-actions"><button class="button button-dark" type="button" data-action="fund-wallet">Add funds</button><button class="button button-outline" type="button" data-action="close-modal">Close</button></div>' });
+  $('.modal')?.classList.add('bottom-sheet');
+}
+function isInsufficientFundsError(error) { return Number(error?.status) === 402 || String(error?.message || '').toLowerCase().includes('insufficient wallet balance'); }
 function showCreatePin(change = Boolean(state.pin.hasPin)) {
   const current = change ? '<div class="field"><label for="current-pin">Current PIN</label><input id="current-pin" type="password" inputmode="numeric" maxlength="4" pattern="\\d{4}" required /></div>' : '';
   openModal({ kicker: 'SECURITY', title: change ? 'Change transaction PIN' : 'Create transaction PIN', intro: change ? 'Enter your current PIN, then choose a new 4-digit PIN.' : 'Create a 4-digit PIN to verify wallet transactions.', body: `<form class="modal-form" id="transaction-pin-form" data-change="${change}">${current}<div class="field"><label for="new-pin">New PIN</label><input id="new-pin" type="password" inputmode="numeric" maxlength="4" pattern="\\d{4}" required /></div><div class="field"><label for="confirm-pin">Confirm new PIN</label><input id="confirm-pin" type="password" inputmode="numeric" maxlength="4" pattern="\\d{4}" required /></div><div class="modal-actions"><button class="button button-dark" type="submit">${change ? 'Change PIN' : 'Create PIN'} <span>↗</span></button></div></form>` });
@@ -600,6 +625,7 @@ async function submitWalletPurchase(pending, pin) {
     const result = await invokeFunction('create-purchase', { product_id: pending.product.id, parameters: pending.parameters, pin });
     clearPinState(); await loadUserData(); render(); closeModal(); showReceipt(result, pending.amount, pending.context);
   } catch (error) {
+    if (isInsufficientFundsError(error)) { clearPinState(); showInsufficientFunds(pending.amount); return; }
     const code = pinErrorCode(error);
     if (code === 'PIN_WRONG') { state.pin.value = ''; updatePinBoxes(); showToast(error.message || 'That PIN is incorrect.'); return; }
     if (code === 'PIN_NOT_SET') { state.pin.hasPin = false; showCreatePin(false); return; }
@@ -608,10 +634,12 @@ async function submitWalletPurchase(pending, pin) {
   }
 }
 async function beginWalletPurchase(pending) {
+  const balance = Number(state.wallet?.balance || 0);
+  if (balance < Number(pending.amount)) return showInsufficientFunds(pending.amount);
   if (state.pin.hasPin === null) await loadTransactionPinStatus();
   if (state.pin.hasPin === false) return showCreatePin(false);
   if (state.pin.hasPin === true) return showPinEntry(pending);
-  throw new Error('Transaction PIN status could not be checked. Please try again.');
+  throw new Error(state.pin.statusError || 'Transaction PIN status could not be checked. Please try again.');
 }
 
 async function handleSubmit(form) {
@@ -697,18 +725,22 @@ document.addEventListener('change', (event) => {
   if (event.target.id === 'margin-type') state.admin.marginType = event.target.value;
   if (event.target.id === 'margin-value') state.admin.marginValue = event.target.value;
 });
+function syncPhoneInput(input, { clearManual = true } = {}) {
+  if (!input || !input.matches('[data-phone-input]')) return;
+  const form = input.closest('#purchase-form');
+  const normalized = normalizePhone(input.value);
+  if (input.value !== normalized && (/[\s+-]/.test(input.value) || normalized.length === 11)) input.value = normalized;
+  if (form && clearManual) delete form.dataset.manualNetwork;
+  const detected = isValidPhone(input.value) ? detectNetwork(input.value) : '';
+  if (form) updateNetworkSelection(form, detected);
+  if (form?.dataset.kind === 'data') renderDataPlans(form);
+  if (form) updateNetworkHelp(form);
+  if (form?.dataset.kind === 'airtime') updateAirtimePayButton(form);
+}
+function phoneEventHandler(event) { syncPhoneInput(event.target); }
+['input', 'change', 'blur', 'paste', 'focus'].forEach((eventName) => document.addEventListener(eventName, phoneEventHandler));
+if (!phonePollTimer) phonePollTimer = setInterval(() => { const input = document.querySelector('[data-phone-input]'); if (input && input.value !== input.dataset.lastPolledValue) { input.dataset.lastPolledValue = input.value; syncPhoneInput(input, { clearManual: false }); } }, 300);
 document.addEventListener('input', (event) => {
-  if (event.target.dataset.phoneInput) {
-    const form = event.target.closest('#purchase-form');
-    const normalized = normalizePhone(event.target.value);
-    if (event.target.value !== normalized && (event.target.value.includes('+') || event.target.value.includes(' ') || event.target.value.includes('-') || normalized.length === 11)) event.target.value = normalized;
-    if (form) delete form.dataset.manualNetwork;
-    const detected = isValidPhone(event.target.value) ? detectNetwork(event.target.value) : '';
-    if (form) updateNetworkSelection(form, detected);
-    if (form?.dataset.kind === 'data') renderDataPlans(form);
-    if (form) updateNetworkHelp(form);
-    if (form?.dataset.kind === 'airtime') updateAirtimePayButton(form);
-  }
   if (event.target.id === 'amount' && event.target.closest('#purchase-form')) {
     const form = event.target.closest('#purchase-form');
     const amount = Number(event.target.value || 0);
