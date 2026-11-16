@@ -6,7 +6,7 @@ const runtimeConfig = {
   supportWhatsappUrl: import.meta.env.VITE_SUPPORT_WHATSAPP_URL || 'https://wa.me/2348079374019'
 };
 
-const supportEmail = 'teamfeji4@gmail.com';
+const supportEmail = 'pudata6@gmail.com';
 const FUNDING_FEE = 20;
 const FUNDING_PRESETS = [500, 1000, 2000, 5000];
 const supabaseClient = runtimeConfig.supabaseUrl && runtimeConfig.supabaseAnonKey && window.supabase
