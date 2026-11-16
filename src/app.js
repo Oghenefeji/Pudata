@@ -81,6 +81,8 @@ function showToast(message) {
   showToast.timer = setTimeout(() => toast.classList.remove('show'), 3500);
 }
 function openModal({ kicker = 'PUDATA', title, intro = '', body }) {
+  const modal = $('.modal');
+  modal.classList.remove('bottom-sheet', 'processing-modal');
   $('#modal-kicker').textContent = kicker;
   $('#modal-title').textContent = title;
   $('#modal-intro').textContent = intro;
@@ -635,6 +637,15 @@ function showInsufficientFunds(amount) {
   openModal({ kicker: 'WALLET', title: 'Insufficient funds', intro: `Your wallet balance is ${money(balance)} and this costs ${money(amount)}`, body: '<div class="modal-actions insufficient-funds-actions"><button class="button button-dark" type="button" data-action="fund-wallet">Add funds</button><button class="button button-outline" type="button" data-action="close-modal">Close</button></div>' });
   $('.modal')?.classList.add('bottom-sheet');
 }
+function showPaymentProcessing() {
+  openModal({
+    kicker: 'PAYMENT',
+    title: 'Processing payment',
+    intro: 'Please wait while we complete your transaction.',
+    body: '<div class="payment-processing" role="status" aria-live="polite" aria-label="Your payment is processing"><div class="processing-bubbles" aria-hidden="true"><span class="processing-bubble processing-bubble-one"></span><span class="processing-bubble processing-bubble-two"></span><span class="processing-bubble processing-bubble-three"></span></div><p>Do not close this screen or press Pay again.</p></div>'
+  });
+  $('.modal')?.classList.add('processing-modal');
+}
 function isInsufficientFundsError(error) { return Number(error?.status) === 402 || String(error?.message || '').toLowerCase().includes('insufficient wallet balance'); }
 function showChangePassword() {
   const eye = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>';
@@ -657,15 +668,17 @@ function updatePinBoxes() {
   const proceed = $('.pin-proceed'); if (proceed) proceed.disabled = state.pin.value.length !== 4;
 }
 async function submitWalletPurchase(pending, pin) {
+  showPaymentProcessing();
   try {
     const result = await invokeFunction('create-purchase', { product_id: pending.product.id, parameters: pending.parameters, pin });
     clearPinState(); await loadUserData(); const receiptReference = result.reference || result.client_reference; const transaction = receiptReference ? state.transactions.find((item) => item.client_reference === receiptReference) : null; render(); closeModal(); showReceipt({ ...result, created_at: result.created_at || transaction?.created_at }, pending.amount, pending.context);
   } catch (error) {
     if (isInsufficientFundsError(error)) { clearPinState(); showInsufficientFunds(pending.amount); return; }
     const code = pinErrorCode(error);
-    if (code === 'PIN_WRONG') { state.pin.value = ''; updatePinBoxes(); showToast(error.message || 'That PIN is incorrect.'); return; }
+    if (code === 'PIN_WRONG') { showPinEntry(pending); showToast(error.message || 'That PIN is incorrect.'); return; }
     if (code === 'PIN_NOT_SET') { state.pin.hasPin = false; showCreatePin(false); return; }
-    if (code === 'PIN_LOCKED') { showToast(error.message || 'Your transaction PIN is locked.'); return; }
+    if (code === 'PIN_LOCKED') { showPinEntry(pending); showToast(error.message || 'Your transaction PIN is locked.'); return; }
+    closeModal();
     throw error;
   }
 }

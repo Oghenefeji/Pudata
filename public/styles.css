@@ -302,3 +302,17 @@ h1, h2, h3, .wallet-balance, .brand-name { font-family: Manrope, Arial, sans-ser
 .manual-badge { display: inline-flex !important; width: fit-content; margin: 0 !important; padding: 3px 7px; border-radius: 999px; background: var(--ink); color: white !important; font-size: 9px !important; font-weight: 800; }
 .manual-price-controls .text-button { color: var(--ink); white-space: nowrap; }
 @media (max-width: 700px) { .default-margin-fields { grid-template-columns: 1fr 1fr; } .default-margin-fields .button { grid-column: 1 / -1; } }
+
+.processing-modal { width: min(430px, 100%); min-height: 330px; display: grid; place-items: center; align-content: center; padding: 30px; background: rgba(255,255,255,.96); text-align: center; }
+.processing-modal .modal-close { display: none; }
+.processing-modal .modal-kicker { color: var(--ink); }
+.processing-modal .modal-intro { padding-right: 0; }
+.payment-processing { width: 100%; display: grid; justify-items: center; gap: 18px; margin-top: 24px; }
+.processing-bubbles { position: relative; width: 250px; height: 110px; display: flex; align-items: center; justify-content: center; gap: 24px; }
+.processing-bubble { display: block; width: 58px; height: 58px; border-radius: 50%; background: white; box-shadow: 0 8px 22px rgba(0,0,0,.13); animation: payment-bubble-float 1.35s ease-in-out infinite; }
+.processing-bubble-one { width: 54px; height: 54px; animation-delay: -.45s; }
+.processing-bubble-two { width: 76px; height: 76px; animation-delay: -.9s; }
+.processing-bubble-three { width: 48px; height: 48px; animation-delay: 0s; }
+.payment-processing p { max-width: 260px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+@keyframes payment-bubble-float { 0%, 100% { transform: translateY(12px) scale(.92); opacity: .72; } 50% { transform: translateY(-12px) scale(1.04); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .processing-bubble { animation: none; } }
