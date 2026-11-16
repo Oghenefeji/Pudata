@@ -290,3 +290,15 @@ h1, h2, h3, .wallet-balance, .brand-name { font-family: Manrope, Arial, sans-ser
 .profile-password-card strong, .profile-password-card span { display: block; }
 .profile-password-card span { color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 5px; }
 @media (max-width: 560px) { .profile-password-card { align-items: flex-start; flex-direction: column; } .profile-password-card .button { width: 100%; } }
+
+.default-margin-card { display: grid; gap: 16px; margin: 18px 0 20px; padding: 18px; border: 1px solid var(--line); border-radius: 17px; background: white; }
+.default-margin-card h3 { font-size: 18px; margin-top: 5px; }
+.default-margin-card p { color: var(--muted); font-size: 12px; margin-top: 5px; }
+.card-kicker { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+.default-margin-fields { display: grid; grid-template-columns: minmax(130px, .8fr) minmax(120px, .8fr) auto; align-items: end; gap: 9px; }
+.default-margin-fields label { display: grid; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 800; }
+.default-margin-fields .button { min-height: 40px; }
+.manual-price-controls { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.manual-badge { display: inline-flex !important; width: fit-content; margin: 0 !important; padding: 3px 7px; border-radius: 999px; background: var(--ink); color: white !important; font-size: 9px !important; font-weight: 800; }
+.manual-price-controls .text-button { color: var(--ink); white-space: nowrap; }
+@media (max-width: 700px) { .default-margin-fields { grid-template-columns: 1fr 1fr; } .default-margin-fields .button { grid-column: 1 / -1; } }
