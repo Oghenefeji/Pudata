@@ -1,7 +1,7 @@
 const runtimeConfig = {
   supabaseUrl: import.meta.env.VITE_SUPABASE_URL || '',
   supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
-  flutterwavePublicKey: import.meta.env.NEXT_PUBLIC_FLW_PUBLIC_KEY || import.meta.env.VITE_FLUTTERWAVE_PUBLIC_KEY || '',
+  flutterwavePublicKey: import.meta.env.VITE_FLW_PUBLIC_KEY || '',
   appUrl: import.meta.env.VITE_APP_URL || '',
   supportWhatsappUrl: import.meta.env.VITE_SUPPORT_WHATSAPP_URL || 'https://wa.me/2348079374019'
 };
@@ -84,7 +84,7 @@ function maskedFlutterwaveKey(value) {
   const key = String(value || '');
   return key ? `${key.slice(0, 7)}…${key.slice(-4)}` : '<missing>';
 }
-console.info('[Flutterwave] NEXT_PUBLIC_FLW_PUBLIC_KEY:', maskedFlutterwaveKey(runtimeConfig.flutterwavePublicKey));
+console.info('[Flutterwave] VITE_FLW_PUBLIC_KEY:', maskedFlutterwaveKey(runtimeConfig.flutterwavePublicKey));
 function openModal({ kicker = 'PUDATA', title, intro = '', body }) {
   const modal = $('.modal');
   modal.classList.remove('bottom-sheet', 'processing-modal');
