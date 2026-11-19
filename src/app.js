@@ -1,7 +1,8 @@
+const configuredFlutterwaveKey = String(import.meta.env.VITE_FLW_PUBLIC_KEY || '').trim().replace(/^['"]|['"]$/g, '').trim();
 const runtimeConfig = {
   supabaseUrl: import.meta.env.VITE_SUPABASE_URL || '',
   supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
-  flutterwavePublicKey: import.meta.env.VITE_FLW_PUBLIC_KEY || '',
+  flutterwavePublicKey: configuredFlutterwaveKey,
   appUrl: import.meta.env.VITE_APP_URL || '',
   supportWhatsappUrl: import.meta.env.VITE_SUPPORT_WHATSAPP_URL || 'https://wa.me/2348079374019'
 };
@@ -84,6 +85,7 @@ function maskedFlutterwaveKey(value) {
   const key = String(value || '');
   return key ? `${key.slice(0, 7)}…${key.slice(-4)}` : '<missing>';
 }
+console.log('[Flutterwave] VITE_FLW_PUBLIC_KEY empty:', !String(import.meta.env.VITE_FLW_PUBLIC_KEY || '').trim());
 console.info('[Flutterwave] VITE_FLW_PUBLIC_KEY:', maskedFlutterwaveKey(runtimeConfig.flutterwavePublicKey));
 function openModal({ kicker = 'PUDATA', title, intro = '', body }) {
   const modal = $('.modal');
@@ -431,7 +433,7 @@ function showPurchase(kind) {
 function walletFundingRef() { if (!state.user?.id) throw new Error('Log in to fund your wallet.'); return `FUND_${state.user.id}_${randomPart()}`; }
 function launchFlutterwave({ amount, txRef, email, onSuccess }) {
   if (!window.FlutterwaveCheckout) return showToast('Flutterwave checkout is not available. Refresh and try again.');
-  if (!/^FLWPUBK(?:_TEST)?[-_]/.test(runtimeConfig.flutterwavePublicKey)) return showToast('Flutterwave public key is missing or invalid. Use the public key that starts with FLWPUBK.');
+  if (!/^FLWPUBK(?:_TEST)?-/.test(runtimeConfig.flutterwavePublicKey)) return showToast('Flutterwave public key is missing or invalid. Use the public key that starts with FLWPUBK.');
   window.FlutterwaveCheckout({ public_key: runtimeConfig.flutterwavePublicKey, tx_ref: txRef, amount, currency: 'NGN', payment_options: 'card,banktransfer,ussd', customer: { email }, customizations: { title: 'pudata', description: 'Payment' }, callback: onSuccess, onclose: () => showToast('Checkout closed. You can retry with the same reference.') });
 }
 function showFundWallet() {
